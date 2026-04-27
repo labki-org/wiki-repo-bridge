@@ -145,6 +145,27 @@ def sync(
         sys.exit(overall_exit)
 
 
+@main.command("fetch-page")
+@click.option("--wiki", "wiki_url", required=True, help="MediaWiki API URL.")
+@click.argument("page_name")
+@click.option("--bot-user", envvar="WIKI_REPO_BOT_USER")
+@click.option("--bot-password", envvar="WIKI_REPO_BOT_PASSWORD")
+def fetch_page(
+    wiki_url: str, page_name: str, bot_user: str | None, bot_password: str | None
+) -> None:
+    """Print the raw wikitext of PAGE_NAME from --wiki. Diagnostic only.
+
+    Example::
+
+        wiki-repo-bridge fetch-page --wiki https://w.example/api.php 'Property:Has description'
+    """
+    client = WikiClient.from_api_url(wiki_url)
+    if bot_user and bot_password:
+        client.login(bot_user, bot_password)
+    text = client.fetch_wikitext(page_name)
+    click.echo(text)
+
+
 @main.command("dump-schema")
 @click.option("--wiki", "wiki_url", required=True, help="MediaWiki API URL.")
 @click.option(
