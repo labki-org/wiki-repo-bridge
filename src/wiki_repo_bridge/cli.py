@@ -4,6 +4,7 @@ import os
 import sys
 
 import click
+from dotenv import load_dotenv
 
 from wiki_repo_bridge.sync import (
     SyncError,
@@ -13,6 +14,11 @@ from wiki_repo_bridge.sync import (
 )
 from wiki_repo_bridge.validator import has_errors
 from wiki_repo_bridge.wiki_client import WikiClient
+
+# Auto-load a .env in the current directory before click parses any options,
+# so envvar-backed flags (--bot-user, --bot-password) pick up secrets without
+# needing to source the file manually. No-op if .env doesn't exist.
+load_dotenv()
 
 
 @click.group()

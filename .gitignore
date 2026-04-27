@@ -30,6 +30,8 @@ htmlcov/
 .DS_Store
 
 # Wiki credentials — never commit
+.env
+.env.local
 *.password
 *.passwd
 user-config.py
