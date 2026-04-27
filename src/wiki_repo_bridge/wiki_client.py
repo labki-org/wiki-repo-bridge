@@ -94,7 +94,16 @@ class WikiClient:
 
     def fetch_wikitext(self, page_name: str) -> str:
         """Return the current wikitext of ``page_name`` (e.g. ``Category:Project``)."""
-        page = self.site.pages[page_name]
+        try:
+            page = self.site.pages[page_name]
+        except Exception as e:  # mwclient.errors.APIError or similar
+            if "readapidenied" in str(e):
+                raise WikiAuthError(
+                    "Wiki requires authentication for read access — "
+                    "pass --bot-user and --bot-password (or set WIKI_REPO_BOT_USER / "
+                    "WIKI_REPO_BOT_PASSWORD env vars)."
+                ) from e
+            raise
         # mwclient.Page exposes ``exists`` as a boolean; fall back to truthiness for mocks.
         exists = getattr(page, "exists", None)
         if exists is False:
@@ -236,3 +245,7 @@ class _MergedSub:
 
 class PageNotFoundError(Exception):
     """Raised when a requested page is empty or missing."""
+
+
+class WikiAuthError(Exception):
+    """Raised when the wiki rejects an unauthenticated request (private wiki without bot creds)."""
