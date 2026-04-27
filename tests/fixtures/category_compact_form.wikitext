@@ -1,0 +1,9 @@
+<!-- OntologySync Start -->
+{{Category
+|has_description=A project — a multi-component effort with a team, lifecycle, and (often) a public-facing open-source artifact. Aggregates one or more source repositories.
+|has_required_property=Has description, Has status, Has PI
+|has_optional_property=Has goal, Has participant, Has funding, Has start date, Has end date, Has responsible party, Has SOP, Has repository url, Has license, Has DOI, Has predecessor, Has successor, Has url, Has notes
+|has_optional_subobject=Has project role
+}}
+<!-- OntologySync End -->
+[[Category:OntologySync-managed]]

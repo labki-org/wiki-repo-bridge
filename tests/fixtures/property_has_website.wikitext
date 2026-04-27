@@ -1,0 +1,6 @@
+{{Property
+|has_description=Website
+|has_type=URL
+|display_label=Website
+|allows_multiple_values=Yes
+}}

@@ -1,0 +1,53 @@
+{{Category
+|has_description=A multi-component effort with a team, lifecycle, and (often) a public-facing open-source artifact. Aggregates one or more source repositories.
+|display_label=Project
+|show_backlinks_for=Has project
+}}
+{{Property field/subobject
+|for_property=Has description
+|is_required=Yes
+}}
+{{Property field/subobject
+|for_property=Has project status
+|is_required=Yes
+}}
+{{Property field/subobject
+|for_property=Has goal
+|is_required=No
+}}
+{{Property field/subobject
+|for_property=Has funding
+|is_required=No
+}}
+{{Property field/subobject
+|for_property=Has start date
+|is_required=No
+}}
+{{Property field/subobject
+|for_property=Has end date
+|is_required=No
+}}
+{{Property field/subobject
+|for_property=Has responsible party
+|is_required=No
+}}
+{{Property field/subobject
+|for_property=Has SOP
+|is_required=No
+}}
+{{Property field/subobject
+|for_property=Has repository url
+|is_required=No
+}}
+{{Property field/subobject
+|for_property=Has license
+|is_required=No
+}}
+{{Property field/subobject
+|for_property=Has DOI
+|is_required=No
+}}
+{{Property field/subobject
+|for_property=Has website
+|is_required=No
+}}
