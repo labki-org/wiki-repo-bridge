@@ -10,12 +10,19 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 @dataclass
 class FakePage:
-    """Mimics mwclient's Page.text() interface."""
+    """Mimics enough of mwclient.Page for our use."""
 
     _text: str = ""
+    exists: bool = True
+    edits: list[tuple[str, str]] = field(default_factory=list)
 
     def text(self) -> str:
         return self._text
+
+    def edit(self, text: str, summary: str) -> None:
+        self.edits.append((text, summary))
+        self._text = text
+        self.exists = True
 
 
 @dataclass
@@ -150,3 +157,66 @@ class TestFromApiUrl:
     def test_url_without_hostname_raises(self) -> None:
         with pytest.raises(ValueError, match="hostname"):
             WikiClient.from_api_url("not-a-url")
+
+
+class TestWritePage:
+    def _content(self, name: str = "Test", *, immutable: bool = False, bootstrap: bool = False):
+        from wiki_repo_bridge.pages import PageContent
+        return PageContent(
+            page_name=name, wikitext="hello", immutable=immutable, bootstrap_only=bootstrap
+        )
+
+    def test_creates_when_absent(self) -> None:
+        from wiki_repo_bridge.wiki_client import WriteAction
+        page = FakePage(exists=False)
+        site = FakeSite(pages={"Test": page})
+        client = WikiClient(site=site)
+        result = client.write_page(self._content("Test"))
+        assert result.action == WriteAction.CREATED
+        assert page.edits[-1][0] == "hello"
+
+    def test_updates_when_present(self) -> None:
+        from wiki_repo_bridge.wiki_client import WriteAction
+        page = FakePage(_text="old", exists=True)
+        site = FakeSite(pages={"Test": page})
+        client = WikiClient(site=site)
+        result = client.write_page(self._content("Test"))
+        assert result.action == WriteAction.UPDATED
+        assert page._text == "hello"
+
+    def test_bootstrap_only_skips_existing(self) -> None:
+        from wiki_repo_bridge.wiki_client import WriteAction
+        page = FakePage(_text="curated", exists=True)
+        site = FakeSite(pages={"Test": page})
+        client = WikiClient(site=site)
+        result = client.write_page(self._content("Test", bootstrap=True))
+        assert result.action == WriteAction.SKIPPED
+        assert "bootstrap" in result.reason
+        assert page._text == "curated"  # untouched
+
+    def test_bootstrap_only_creates_when_absent(self) -> None:
+        from wiki_repo_bridge.wiki_client import WriteAction
+        page = FakePage(exists=False)
+        site = FakeSite(pages={"Test": page})
+        client = WikiClient(site=site)
+        result = client.write_page(self._content("Test", bootstrap=True))
+        assert result.action == WriteAction.CREATED
+
+    def test_immutable_skips_existing(self) -> None:
+        from wiki_repo_bridge.wiki_client import WriteAction
+        page = FakePage(_text="frozen", exists=True)
+        site = FakeSite(pages={"Test": page})
+        client = WikiClient(site=site)
+        result = client.write_page(self._content("Test", immutable=True))
+        assert result.action == WriteAction.SKIPPED
+        assert "immutable" in result.reason
+
+    def test_dry_run_does_not_edit(self) -> None:
+        from wiki_repo_bridge.wiki_client import WriteAction
+        page = FakePage(exists=False)
+        site = FakeSite(pages={"Test": page})
+        client = WikiClient(site=site)
+        result = client.write_page(self._content("Test"), dry_run=True)
+        assert result.action == WriteAction.CREATED
+        assert "dry-run" in result.reason
+        assert page.edits == []

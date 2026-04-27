@@ -36,6 +36,39 @@ STRUCTURAL_KEYS: frozenset[str] = frozenset(
 )
 
 
+# Properties the bridge auto-injects on output for each kind, so the validator
+# doesn't require them to be present in the wiki.yml. Component pages get
+# their parent project filled in from the repo's top-level wiki.yml; family
+# pages get latest_version computed; versioned pages get version + family +
+# design_file_url synthesized by the writer.
+CI_INJECTED_BY_KIND: dict[str, frozenset[str]] = {
+    "project": frozenset(),
+    "hardware_component": frozenset(
+        {"Has project", "Has family", "Has latest version", "Has design file url"}
+    ),
+    "software_component": frozenset(
+        {"Has project", "Has family", "Has latest version"}
+    ),
+    "firmware_component": frozenset(
+        {"Has project", "Has family", "Has latest version"}
+    ),
+    "analysis_component": frozenset(
+        {"Has project", "Has family", "Has latest version"}
+    ),
+}
+
+
+def ci_injected_for_kind(kind: str | None) -> frozenset[str]:
+    """Properties the bridge fills in automatically for a given wiki.yml kind.
+
+    Used by the validator to skip required-property checks for properties the
+    user shouldn't have to declare because the writer always provides them.
+    """
+    if kind is None:
+        return frozenset()
+    return CI_INJECTED_BY_KIND.get(kind, frozenset())
+
+
 class Severity(StrEnum):
     ERROR = "error"
     WARNING = "warning"
@@ -71,9 +104,18 @@ def _build_property_index(schema: Schema) -> dict[str, str]:
 
 
 def validate_file(
-    file: WikiYmlFile, schema: Schema, *, expected_kinds: Iterable[str] | None = None
+    file: WikiYmlFile,
+    schema: Schema,
+    *,
+    expected_kinds: Iterable[str] | None = None,
+    ci_injected: Iterable[str] | None = None,
 ) -> list[ValidationIssue]:
-    """Validate a single ``wiki.yml`` file. Returns a list of issues; empty means clean."""
+    """Validate a single ``wiki.yml`` file. Returns a list of issues; empty means clean.
+
+    ``ci_injected`` is the set of property names the writer always supplies on output —
+    those are exempt from the required-property check. If ``None``, the default set
+    for the file's ``kind`` (from :data:`CI_INJECTED_BY_KIND`) is used.
+    """
     issues: list[ValidationIssue] = []
     rel = str(file.relative_path)
 
@@ -106,7 +148,8 @@ def validate_file(
         )
         return issues
 
-    issues.extend(_check_required_properties(file, category, rel))
+    injected = set(ci_injected) if ci_injected is not None else set(ci_injected_for_kind(kind))
+    issues.extend(_check_required_properties(file, category, rel, injected))
     issues.extend(_check_unknown_keys(file, schema, rel))
     return issues
 
@@ -127,12 +170,16 @@ def has_errors(issues: Iterable[ValidationIssue]) -> bool:
 
 
 def _check_required_properties(
-    file: WikiYmlFile, category: CategoryDef, rel: str
+    file: WikiYmlFile, category: CategoryDef, rel: str, ci_injected: set[str]
 ) -> list[ValidationIssue]:
-    """Every required Property field on the Category must have a corresponding wiki.yml key."""
+    """Every required Property field on the Category must have a corresponding wiki.yml key,
+    unless the property is in ``ci_injected`` (the bridge fills it in automatically)."""
     issues: list[ValidationIssue] = []
     file_keys_as_props = {yaml_key_to_property_name(k).lower() for k in file.content}
+    injected_lower = {p.lower() for p in ci_injected}
     for required in category.required_properties():
+        if required.lower() in injected_lower:
+            continue
         if required.lower() not in file_keys_as_props:
             issues.append(
                 ValidationIssue(

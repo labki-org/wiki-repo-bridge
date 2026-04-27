@@ -8,19 +8,42 @@ which keeps tests easy to write with a mocked Site.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Protocol
 from urllib.parse import urlparse
 
 import mwclient
 
+from wiki_repo_bridge.pages import PageContent
 from wiki_repo_bridge.schema import CategoryDef, PropertyDef, Schema
 from wiki_repo_bridge.wiki_parser import parse_category, parse_property
+
+
+class WriteAction(StrEnum):
+    CREATED = "created"
+    UPDATED = "updated"
+    SKIPPED = "skipped"
+
+
+@dataclass(frozen=True)
+class WriteResult:
+    page_name: str
+    action: WriteAction
+    reason: str = ""
+
+    def __str__(self) -> str:
+        suffix = f" ({self.reason})" if self.reason else ""
+        return f"[{self.action.value}] {self.page_name}{suffix}"
 
 
 class _PageLike(Protocol):
     """Minimal subset of mwclient.page.Page we depend on — eases mocking in tests."""
 
+    exists: bool
+
     def text(self) -> str: ...
+
+    def edit(self, text: str, summary: str) -> object: ...
 
 
 class _SiteLike(Protocol):
@@ -138,6 +161,43 @@ class WikiClient:
                 SubobjectField(target_category=s.target_category, required=s.required)
             )
         return merged
+
+    def write_page(
+        self,
+        content: PageContent,
+        *,
+        edit_summary: str = "wiki-repo-bridge sync",
+        dry_run: bool = False,
+    ) -> WriteResult:
+        """Write a :class:`PageContent` to the wiki, honoring its immutability flags.
+
+        - ``bootstrap_only=True``: skip if the page already exists. Otherwise create.
+        - ``immutable=True``: skip if the page already exists. Otherwise create.
+        - default: create or update (overwrite existing wikitext).
+
+        ``dry_run=True`` returns the would-be action without contacting the wiki.
+        """
+        page = self.site.pages[content.page_name]
+        exists = bool(getattr(page, "exists", False))
+
+        if content.bootstrap_only and exists:
+            return WriteResult(
+                content.page_name,
+                WriteAction.SKIPPED,
+                "bootstrap-only and page already exists",
+            )
+        if content.immutable and exists:
+            return WriteResult(
+                content.page_name,
+                WriteAction.SKIPPED,
+                "immutable and page already exists",
+            )
+
+        action = WriteAction.UPDATED if exists else WriteAction.CREATED
+        reason = "dry-run" if dry_run else ""
+        if not dry_run:
+            page.edit(text=content.wikitext, summary=edit_summary)
+        return WriteResult(content.page_name, action, reason)
 
     def load_schema(
         self, category_names: list[str], property_names: list[str] | None = None
