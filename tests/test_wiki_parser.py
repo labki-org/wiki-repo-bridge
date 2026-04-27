@@ -23,8 +23,26 @@ class TestParseProperty:
         assert prop.allows_value_from_category is None
 
     def test_no_template_raises(self) -> None:
-        with pytest.raises(ValueError, match=r"No.*Property.*block"):
+        with pytest.raises(ValueError, match=r"No Property data found"):
             parse_property("nothing here", "Has nothing")
+
+    def test_raw_smw_form(self) -> None:
+        """Bootstrap properties on the wiki use raw [[Has X::Y]] annotations
+        rather than the {{Property|...}} dispatcher template."""
+        wikitext = (
+            "<!-- SemanticSchemas Start -->\n"
+            "[[Has type::Text]]\n"
+            "[[Has description::Explains the purpose of this category, property, or subobject.]]\n"
+            "[[Display label::Description]]\n"
+            "[[Has input type::textarea]]\n"
+            "<!-- SemanticSchemas End -->\n"
+            "[[Category:SemanticSchemas-managed-property]]\n"
+        )
+        prop = parse_property(wikitext, "Has description")
+        assert prop.type == "Text"
+        assert prop.display_label == "Description"
+        assert "Explains the purpose" in (prop.description or "")
+        assert prop.allows_multiple_values is False
 
 
 class TestParseCategoryWikiForm:

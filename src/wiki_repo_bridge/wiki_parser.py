@@ -1,18 +1,25 @@
 """Parse SemanticSchemas-style wikitext for Category and Property pages
 into the schema dataclasses defined in :mod:`wiki_repo_bridge.schema`.
 
-Two Category page formats are supported:
+The wiki has two formats in active use:
 
-1. *Wiki-rendered form* — the format SemanticSchemas pages actually use on the wiki:
-   a top-level ``{{Category|...}}`` with metadata, followed by repeated
-   ``{{Property field/subobject|for_property=...|is_required=Yes/No}}`` and/or
-   ``{{Property field/subobject|for_category=...|is_required=Yes/No}}`` invocations.
+1. *Dispatcher form* — the canonical SemanticSchemas form, used by every typical
+   Category and Property page (and every page we'll create going forward):
+   ``{{Category|...}}`` / ``{{Property|...}}`` template invocations that the
+   ``Category`` and ``Property`` dispatcher templates expand into the right SMW
+   annotations. Categories carry their fields as separate
+   ``{{Property field/subobject|for_property=...|is_required=Yes/No}}`` calls.
 
-2. *Compact form* — ``has_required_property=A, B, C`` and ``has_optional_property=D, E``
-   inside a single ``{{Category|...}}`` block. This is what the ``labki-ontology`` repo
-   uses; the bridge accepts it for round-trip convenience but the wiki form is canonical.
+2. *Raw SMW form* — used by a handful of bootstrap pages (e.g. ``Has description``,
+   ``Category:Category``) that the dispatcher templates themselves depend on, and
+   so cannot use the dispatcher to define themselves. Raw ``[[Has X::value]]``
+   annotations and ``{{#subobject:|@category=Property field|For property=...}}``.
 
-Property pages use a single ``{{Property|...}}`` block in either source.
+The parser tries dispatcher form first and falls back to raw SMW for bootstrap pages.
+
+The ``labki-ontology`` repo also uses a *compact form* in its source files
+(``has_required_property=A, B, C`` lists inside a single ``{{Category|...}}`` block).
+The Category parser accepts that too for round-trip convenience.
 """
 
 from __future__ import annotations
@@ -73,25 +80,90 @@ def _template_param(template, key: str) -> str | None:
     return None
 
 
-def parse_property(wikitext: str, name: str) -> PropertyDef:
-    """Parse a Property page's wikitext into a :class:`PropertyDef`."""
-    code = mwp.parse(wikitext)
-    templates = [t for t in code.filter_templates() if t.name.strip() == "Property"]
-    if not templates:
-        raise ValueError(f"No {{{{Property}}}} block found in wikitext for {name!r}")
-    tpl = templates[0]
+_META_CATEGORY_MARKERS: tuple[str, ...] = (
+    "managed",  # OntologySync-managed, SemanticSchemas-managed, etc.
+)
 
-    multi = _template_param(tpl, "allows_multiple_values")
-    enum_values = _template_param(tpl, "allows_value")
-    return PropertyDef(
-        name=name,
-        description=_template_param(tpl, "has_description"),
-        type=_template_param(tpl, "has_type"),
-        display_label=_template_param(tpl, "display_label"),
-        allows_multiple_values=_parse_bool(multi) if multi else False,
-        allows_value=_split_csv(enum_values) if enum_values else [],
-        allows_value_from_category=_template_param(tpl, "allows_value_from_category"),
-    )
+
+def _detect_parent_from_category_links(code) -> str | None:
+    """Find a parent Category from ``[[Category:X]]`` markers, skipping meta-categories
+    like ``OntologySync-managed`` / ``SemanticSchemas-managed``."""
+    for link in code.filter_wikilinks():
+        title = str(link.title).strip()
+        if not title.startswith("Category:"):
+            continue
+        target = title[len("Category:"):].strip()
+        lower = target.lower()
+        if any(marker in lower for marker in _META_CATEGORY_MARKERS):
+            continue
+        return target
+    return None
+
+
+def _extract_smw_annotations(code) -> dict[str, str]:
+    """Pull every ``[[Property::Value]]`` semantic annotation out of wikitext.
+
+    The key is normalized to snake_case (``Has type`` → ``has_type``,
+    ``Display label`` → ``display_label``) so it lines up with the snake_case
+    parameter names used by the helper-template form.
+    """
+    annotations: dict[str, str] = {}
+    for link in code.filter_wikilinks():
+        title = str(link.title).strip()
+        if "::" not in title:
+            continue
+        prop, _, value = title.partition("::")
+        prop = prop.strip()
+        value = value.strip()
+        # Skip [[Category:Foo]] markers (they have no '::')
+        if not prop or prop.startswith("Category:"):
+            continue
+        key = prop.replace(" ", "_").lower()
+        annotations[key] = value
+    return annotations
+
+
+def parse_property(wikitext: str, name: str) -> PropertyDef:
+    """Parse a Property page's wikitext into a :class:`PropertyDef`.
+
+    Tries the raw SMW form first (``[[Has type::Text]]`` etc.) since that's the
+    canonical SemanticSchemas form on the wiki. Falls back to the
+    ``{{Property|...}}`` helper-template form for legacy or imported pages.
+    """
+    code = mwp.parse(wikitext)
+
+    # Helper-template form (legacy / labki-ontology repo)
+    templates = [t for t in code.filter_templates() if t.name.strip() == "Property"]
+    if templates:
+        tpl = templates[0]
+        multi = _template_param(tpl, "allows_multiple_values")
+        enum_values = _template_param(tpl, "allows_value")
+        return PropertyDef(
+            name=name,
+            description=_template_param(tpl, "has_description"),
+            type=_template_param(tpl, "has_type"),
+            display_label=_template_param(tpl, "display_label"),
+            allows_multiple_values=_parse_bool(multi) if multi else False,
+            allows_value=_split_csv(enum_values) if enum_values else [],
+            allows_value_from_category=_template_param(tpl, "allows_value_from_category"),
+        )
+
+    # Raw SMW form (canonical SemanticSchemas form on the wiki)
+    annotations = _extract_smw_annotations(code)
+    if annotations:
+        multi = annotations.get("allows_multiple_values")
+        enum_values = annotations.get("allows_value")
+        return PropertyDef(
+            name=name,
+            description=annotations.get("has_description"),
+            type=annotations.get("has_type"),
+            display_label=annotations.get("display_label"),
+            allows_multiple_values=_parse_bool(multi) if multi else False,
+            allows_value=_split_csv(enum_values) if enum_values else [],
+            allows_value_from_category=annotations.get("allows_value_from_category"),
+        )
+
+    raise ValueError(f"No Property data found in wikitext for {name!r}")
 
 
 def parse_category(wikitext: str, name: str) -> CategoryDef:
@@ -107,20 +179,31 @@ def parse_category(wikitext: str, name: str) -> CategoryDef:
     if category_tpl is None:
         raise ValueError(f"No {{{{Category}}}} block found in wikitext for {name!r}")
 
+    parent = _template_param(category_tpl, "has_parent_category")
+    if parent is None:
+        # Fall back to [[Category:X]] markers — that's how the wiki itself encodes
+        # the parent of e.g. Category:Hardware component → Category:Component.
+        parent = _detect_parent_from_category_links(code)
+
     cat = CategoryDef(
         name=name,
         description=_template_param(category_tpl, "has_description"),
         display_label=_template_param(category_tpl, "display_label"),
-        parent_category=_template_param(category_tpl, "has_parent_category"),
+        parent_category=parent,
         show_backlinks_for=_template_param(category_tpl, "show_backlinks_for"),
         target_namespace=_template_param(category_tpl, "has_target_namespace"),
     )
 
-    # Wiki-rendered form: explicit Property field/subobject invocations.
+    # Wiki-rendered form: explicit Property/Subobject field/subobject invocations.
     field_tpls = [
         t
         for t in templates
-        if t.name.strip() in {"Property field/subobject", "Property field", "Subobject field"}
+        if t.name.strip() in {
+            "Property field/subobject",
+            "Subobject field/subobject",
+            "Property field",
+            "Subobject field",
+        }
     ]
     for tpl in field_tpls:
         required_raw = _template_param(tpl, "is_required")
