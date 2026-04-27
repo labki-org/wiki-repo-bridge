@@ -28,8 +28,8 @@ def make_schema() -> Schema:
             PropertyField(name="Has predecessor", required=False),
         ],
     )
-    schema.categories["Hardware Component"] = CategoryDef(
-        name="Hardware Component",
+    schema.categories["Hardware component"] = CategoryDef(
+        name="Hardware component",
         property_fields=[
             PropertyField(name="Has name", required=True),
             PropertyField(name="Has project", required=True),
@@ -130,7 +130,7 @@ class TestComponentFamily:
         page = render_component_family(f, "MiniXL", "1.0.2", make_schema())
         assert page.page_name == "MiniXL/Components/Housing"
         assert page.immutable is False
-        assert "{{Hardware Component" in page.wikitext
+        assert "{{Hardware component" in page.wikitext
         assert "|has_latest_version=MiniXL/Components/Housing/1.0.2" in page.wikitext
         assert "|has_project=MiniXL" in page.wikitext
         assert "|has_description=3D printed body" in page.wikitext

@@ -87,10 +87,12 @@ class ValidationIssue:
 def kind_to_category_name(kind: str) -> str:
     """Map a wiki.yml ``kind`` value to a wiki Category page name.
 
-    ``hardware_component`` → ``Hardware Component``. The wiki stores Categories with
-    Title-cased space-separated names; the YAML uses snake_case.
+    ``hardware_component`` → ``Hardware component``. MediaWiki capitalizes only the
+    first letter of a page title by default; the YAML uses snake_case and we
+    convert to spaces preserving the rest of the lowercasing.
     """
-    return " ".join(part.capitalize() for part in kind.split("_"))
+    s = kind.replace("_", " ")
+    return s[:1].upper() + s[1:] if s else s
 
 
 def yaml_key_to_property_name(key: str) -> str:

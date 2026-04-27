@@ -89,12 +89,12 @@ class TestInheritance:
             "{{Property field/subobject|for_property=Has project|is_required=Yes}}\n"
             "{{Property field/subobject|for_property=Has version|is_required=No}}\n"
         )
-        site.pages["Category:Hardware Component"] = FakePage(
+        site.pages["Category:Hardware component"] = FakePage(
             "{{Category|has_description=Hardware|has_parent_category=Component}}\n"
             "{{Property field/subobject|for_property=Has hardware type|is_required=Yes}}\n"
         )
         client = WikiClient(site=site)
-        merged = client.load_category_with_inheritance("Hardware Component")
+        merged = client.load_category_with_inheritance("Hardware component")
         names = {f.name for f in merged.property_fields}
         assert names == {"Has name", "Has project", "Has version", "Has hardware type"}
         # Parent's required stays required, child's new required added

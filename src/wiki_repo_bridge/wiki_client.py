@@ -95,9 +95,13 @@ class WikiClient:
     def fetch_wikitext(self, page_name: str) -> str:
         """Return the current wikitext of ``page_name`` (e.g. ``Category:Project``)."""
         page = self.site.pages[page_name]
+        # mwclient.Page exposes ``exists`` as a boolean; fall back to truthiness for mocks.
+        exists = getattr(page, "exists", None)
+        if exists is False:
+            raise PageNotFoundError(f"Page {page_name!r} does not exist")
         text = page.text()
-        if not text:
-            raise PageNotFoundError(f"Page {page_name!r} is empty or does not exist")
+        if not text or not text.strip():
+            raise PageNotFoundError(f"Page {page_name!r} exists but has empty wikitext")
         return text
 
     def fetch_category(self, name: str) -> CategoryDef:

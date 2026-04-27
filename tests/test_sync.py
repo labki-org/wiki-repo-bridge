@@ -66,8 +66,8 @@ def make_schema() -> Schema:
             PropertyField(name="Has repository url", required=False),
         ],
     )
-    schema.categories["Hardware Component"] = CategoryDef(
-        name="Hardware Component",
+    schema.categories["Hardware component"] = CategoryDef(
+        name="Hardware component",
         property_fields=[
             PropertyField(name="Has name", required=True),
             PropertyField(name="Has project", required=True),
@@ -183,7 +183,7 @@ class TestCategoriesUsedByRepo:
     def test_minixl_like(self, repo: Path) -> None:
         cats = categories_used_by_repo(repo)
         assert "Project" in cats
-        assert "Hardware Component" in cats
+        assert "Hardware component" in cats
         assert "Release" in cats
 
     def test_missing_repo_returns_defaults(self, tmp_path: Path) -> None:

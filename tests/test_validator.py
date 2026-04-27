@@ -18,7 +18,7 @@ from wiki_repo_bridge.walker import WikiYmlFile
 
 
 def make_schema() -> Schema:
-    """A small schema mirroring the relevant Project + Hardware Component shape."""
+    """A small schema mirroring the relevant Project + Hardware component shape."""
     schema = Schema()
     schema.categories["Project"] = CategoryDef(
         name="Project",
@@ -32,8 +32,8 @@ def make_schema() -> Schema:
             PropertyField(name="Has predecessor", required=False),
         ],
     )
-    schema.categories["Hardware Component"] = CategoryDef(
-        name="Hardware Component",
+    schema.categories["Hardware component"] = CategoryDef(
+        name="Hardware component",
         property_fields=[
             PropertyField(name="Has name", required=True),
             PropertyField(name="Has project", required=True),
@@ -60,10 +60,10 @@ class TestKindMapping:
         assert kind_to_category_name("project") == "Project"
 
     def test_compound(self) -> None:
-        assert kind_to_category_name("hardware_component") == "Hardware Component"
+        assert kind_to_category_name("hardware_component") == "Hardware component"
 
     def test_three_words(self) -> None:
-        assert kind_to_category_name("analysis_component_thing") == "Analysis Component Thing"
+        assert kind_to_category_name("analysis_component_thing") == "Analysis component thing"
 
 
 class TestKeyMapping:

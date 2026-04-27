@@ -151,7 +151,7 @@ def sync(
     "--category",
     "categories",
     multiple=True,
-    help="Category name to dump. Repeatable. Defaults to: Project, Hardware Component, Release.",
+    help="Category name to dump. Repeatable. Defaults to: Project, Hardware component, Release.",
 )
 @click.option(
     "--bot-user",
@@ -174,7 +174,7 @@ def dump_schema(
     Useful for debugging the wikitext parser against a real wiki — confirms the
     bridge can read what's actually installed before any writes happen.
     """
-    cats = list(categories) if categories else ["Project", "Hardware Component", "Release"]
+    cats = list(categories) if categories else ["Project", "Hardware component", "Release"]
     client = WikiClient.from_api_url(wiki_url)
     if bot_user and bot_password:
         client.login(bot_user, bot_password)

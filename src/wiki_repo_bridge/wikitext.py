@@ -2,7 +2,7 @@
 
 The page-instance format the bridge writes looks like::
 
-    {{Hardware Component
+    {{Hardware component
     |has_name=Housing
     |has_version=1.0.2
     |has_description=3D printed body...
