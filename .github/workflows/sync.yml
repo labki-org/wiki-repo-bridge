@@ -33,9 +33,9 @@ on:
         type: string
         default: main
     secrets:
-      WIKI_BOT_USER:
+      WIKI_REPO_BOT_USER:
         required: true
-      WIKI_BOT_PASSWORD:
+      WIKI_REPO_BOT_PASSWORD:
         required: true
 
 jobs:
@@ -64,8 +64,8 @@ jobs:
 
       - name: Run sync
         env:
-          WIKI_BOT_USER: ${{ secrets.WIKI_BOT_USER }}
-          WIKI_BOT_PASSWORD: ${{ secrets.WIKI_BOT_PASSWORD }}
+          WIKI_REPO_BOT_USER: ${{ secrets.WIKI_REPO_BOT_USER }}
+          WIKI_REPO_BOT_PASSWORD: ${{ secrets.WIKI_REPO_BOT_PASSWORD }}
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_WIKIS: ${{ inputs.wikis }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}

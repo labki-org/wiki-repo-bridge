@@ -24,14 +24,20 @@ on:
 
 jobs:
   sync:
-    uses: labki-org/wiki-repo-bridge/.github/workflows/sync.yml@v1
+    uses: labki-org/wiki-repo-bridge/.github/workflows/sync.yml@main
     with:
-      wikis:
-        - https://wiki.example-lab.org/api.php
-        - https://example-public.org/wiki/api.php
+      wikis: |
+        https://wiki.example-lab.org/api.php
+        https://example-public.org/wiki/api.php
+    secrets: inherit  # passes WIKI_REPO_BOT_USER / WIKI_REPO_BOT_PASSWORD from org secrets
+```
+
+If your secrets live elsewhere or have different names, pass them explicitly instead of `inherit`:
+
+```yaml
     secrets:
-      WIKI_BOT_USER: ${{ secrets.WIKI_BOT_USER }}
-      WIKI_BOT_PASSWORD: ${{ secrets.WIKI_BOT_PASSWORD }}
+      WIKI_REPO_BOT_USER: ${{ secrets.MY_BOT_USER }}
+      WIKI_REPO_BOT_PASSWORD: ${{ secrets.MY_BOT_PASSWORD }}
 ```
 
 ## CLI

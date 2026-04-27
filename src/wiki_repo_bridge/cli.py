@@ -32,13 +32,13 @@ def main() -> None:
 )
 @click.option(
     "--bot-user",
-    envvar="WIKI_BOT_USER",
-    help="Bot username (env: WIKI_BOT_USER). Optional for read-only validation.",
+    envvar="WIKI_REPO_BOT_USER",
+    help="Bot username (env: WIKI_REPO_BOT_USER). Optional for read-only validation.",
 )
 @click.option(
     "--bot-password",
-    envvar="WIKI_BOT_PASSWORD",
-    help="Bot password (env: WIKI_BOT_PASSWORD). Optional for read-only validation.",
+    envvar="WIKI_REPO_BOT_PASSWORD",
+    help="Bot password (env: WIKI_REPO_BOT_PASSWORD). Optional for read-only validation.",
 )
 def validate(
     repo_path: str, wikis: tuple[str, ...], bot_user: str | None, bot_password: str | None
@@ -76,15 +76,15 @@ def validate(
 @click.option("--tag", required=True, help="Git tag triggering the sync (e.g. v1.2.0).")
 @click.option(
     "--bot-user",
-    envvar="WIKI_BOT_USER",
+    envvar="WIKI_REPO_BOT_USER",
     required=True,
-    help="Bot username (env: WIKI_BOT_USER).",
+    help="Bot username (env: WIKI_REPO_BOT_USER).",
 )
 @click.option(
     "--bot-password",
-    envvar="WIKI_BOT_PASSWORD",
+    envvar="WIKI_REPO_BOT_PASSWORD",
     required=True,
-    help="Bot password (env: WIKI_BOT_PASSWORD).",
+    help="Bot password (env: WIKI_REPO_BOT_PASSWORD).",
 )
 @click.option(
     "--release-date",
@@ -155,13 +155,13 @@ def sync(
 )
 @click.option(
     "--bot-user",
-    envvar="WIKI_BOT_USER",
-    help="Bot username (env: WIKI_BOT_USER). Optional — many wikis allow anonymous reads.",
+    envvar="WIKI_REPO_BOT_USER",
+    help="Bot username (env: WIKI_REPO_BOT_USER). Optional — many wikis allow anonymous reads.",
 )
 @click.option(
     "--bot-password",
-    envvar="WIKI_BOT_PASSWORD",
-    help="Bot password (env: WIKI_BOT_PASSWORD).",
+    envvar="WIKI_REPO_BOT_PASSWORD",
+    help="Bot password (env: WIKI_REPO_BOT_PASSWORD).",
 )
 def dump_schema(
     wiki_url: str,
