@@ -19,9 +19,8 @@ import yaml
 class WikiYmlFile:
     """One ``wiki.yml`` file located in a repository.
 
-    ``relative_path`` is the path to the file from the repo root, useful for both
-    constructing wiki page names and for human-readable error messages. ``content``
-    is the fully parsed YAML mapping.
+    ``relative_path`` (from the repo root) is what the writer uses to build wiki
+    page names; ``content`` is the parsed YAML mapping.
     """
 
     path: Path
@@ -30,14 +29,9 @@ class WikiYmlFile:
 
     @property
     def kind(self) -> str | None:
-        """The declared ``kind`` field — e.g. ``project``, ``hardware_component``."""
+        """Top-level ``kind`` field, e.g. ``project`` or ``hardware_component``."""
         kind = self.content.get("kind")
         return str(kind) if kind is not None else None
-
-    @property
-    def directory(self) -> Path:
-        """The directory containing this file (a component's source path, or the repo root)."""
-        return self.path.parent
 
 
 class WikiYmlError(Exception):
@@ -71,7 +65,8 @@ def find_wiki_yml_files(repo_path: Path | str) -> list[WikiYmlFile]:
                 found.append(WikiYmlFile(path=entry, relative_path=rel, content=content))
 
     walk(repo)
-    found.sort(key=lambda f: (len(f.relative_path.parts), str(f.relative_path)))
+    # Sort root file first (1 part), then nested files lexicographically.
+    found.sort(key=lambda f: (len(f.relative_path.parts), f.relative_path.parts))
     return found
 
 
@@ -91,7 +86,7 @@ def find_project_file(files: list[WikiYmlFile]) -> WikiYmlFile:
 
 
 def find_component_files(files: list[WikiYmlFile]) -> list[WikiYmlFile]:
-    """Return all ``wiki.yml`` files declaring a component (any kind ending in ``_component``)."""
+    """Return ``wiki.yml`` files declaring any kind of component."""
     return [f for f in files if (f.kind or "").endswith("_component")]
 
 

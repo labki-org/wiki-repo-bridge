@@ -22,6 +22,7 @@ from wiki_repo_bridge.schema import CategoryDef, Schema
 from wiki_repo_bridge.validator import (
     STRUCTURAL_KEYS,
     kind_to_category_name,
+    property_name_to_param,
     yaml_key_to_property_name,
 )
 from wiki_repo_bridge.walker import WikiYmlFile
@@ -45,36 +46,28 @@ class PageContent:
     """Project pages are only written on first run; never overwritten thereafter."""
 
 
+def _filter_to_installed(
+    kwargs: dict[str, Any], category: CategoryDef
+) -> dict[str, Any]:
+    """Drop kwargs whose corresponding Property isn't installed on ``category``,
+    and re-emit the survivors in field-declaration order."""
+    installed_params = [property_name_to_param(f.name) for f in category.property_fields]
+    ordered: dict[str, Any] = {p: kwargs[p] for p in installed_params if p in kwargs}
+    return ordered
+
+
 def _content_kwargs(file: WikiYmlFile, category: CategoryDef) -> dict[str, str]:
-    """Pick wiki.yml keys whose names map to known property fields on ``category``,
-    convert them to SemanticSchemas template parameter form (``has_xxx_yyy``),
-    and return them in the canonical category-field order so output is deterministic.
-
-    Unknown keys (already warned about by the validator) and structural keys are dropped.
-    """
-    field_order_lower = {f.name.lower(): f.name for f in category.property_fields}
-
+    """Map wiki.yml keys to template parameters, dropping structural keys and any
+    keys whose property isn't installed on ``category``."""
+    installed_props_lower = {f.name.lower() for f in category.property_fields}
     chosen: dict[str, Any] = {}
     for key, value in file.content.items():
         if key in STRUCTURAL_KEYS:
             continue
-        prop_name = yaml_key_to_property_name(key)
-        if prop_name.lower() not in field_order_lower:
+        if yaml_key_to_property_name(key).lower() not in installed_props_lower:
             continue
-        param = "has_" + key.replace("_", "_") if key.startswith("has_") else "has_" + key
-        chosen[param] = value
-
-    # Re-key in field declaration order for stable output
-    ordered: dict[str, Any] = {}
-    for field_name in [f.name for f in category.property_fields]:
-        param = "has_" + field_name[len("Has "):].replace(" ", "_").lower()
-        if param in chosen:
-            ordered[param] = chosen[param]
-    # Append anything left (shouldn't happen unless there's a key the schema doesn't list)
-    for k, v in chosen.items():
-        if k not in ordered:
-            ordered[k] = v
-    return ordered
+        chosen["has_" + key] = value
+    return _filter_to_installed(chosen, category)
 
 
 def _free_text_sections(file: WikiYmlFile) -> str:
@@ -118,8 +111,7 @@ def render_component_family(
     component_name = file.content["name"]
 
     kwargs = _content_kwargs(file, category)
-    # The Family page intentionally omits has_version and has_family —
-    # those belong on the per-version snapshot, not the canonical page.
+    # version and family belong on the per-version snapshot, not the canonical page.
     kwargs.pop("has_version", None)
     kwargs.pop("has_family", None)
     kwargs["has_project"] = project_name
@@ -198,14 +190,7 @@ def render_release(
     if artifact_url:
         kwargs["has_artifact_url"] = artifact_url
 
-    # Drop any kwargs whose property isn't actually installed on this destination wiki
-    field_lower = {f.name.lower() for f in category.property_fields}
-    kwargs = {
-        k: v
-        for k, v in kwargs.items()
-        if ("Has " + k[len("has_"):].replace("_", " ")).lower() in field_lower
-    }
-
+    kwargs = _filter_to_installed(kwargs, category)
     return PageContent(
         page_name=page_names.release_page(project_name, tag),
         wikitext=render_template("Release", kwargs) + "\n",

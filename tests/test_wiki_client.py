@@ -1,44 +1,16 @@
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
+from tests.conftest import FakePage, FakeSite
 from wiki_repo_bridge.wiki_client import PageNotFoundError, WikiClient
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-@dataclass
-class FakePage:
-    """Mimics enough of mwclient.Page for our use."""
-
-    _text: str = ""
-    exists: bool = True
-    edits: list[tuple[str, str]] = field(default_factory=list)
-
-    def text(self) -> str:
-        return self._text
-
-    def edit(self, text: str, summary: str) -> None:
-        self.edits.append((text, summary))
-        self._text = text
-        self.exists = True
-
-
-@dataclass
-class FakeSite:
-    """Mimics enough of mwclient.Site for WikiClient's needs."""
-
-    pages: dict[str, FakePage] = field(default_factory=dict)
-    logged_in_as: tuple[str, str] | None = None
-
-    def login(self, username: str, password: str) -> None:
-        self.logged_in_as = (username, password)
-
-
 @pytest.fixture
 def site_with_project() -> FakeSite:
-    site = FakeSite()
+    site = FakeSite(auto_create=False)
     site.pages["Category:Project"] = FakePage((FIXTURES / "category_project.wikitext").read_text())
     site.pages["Property:Has website"] = FakePage(
         (FIXTURES / "property_has_website.wikitext").read_text()
@@ -57,11 +29,11 @@ class TestFetchAndCache:
     def test_category_cache_avoids_refetch(self, site_with_project: FakeSite) -> None:
         client = WikiClient(site=site_with_project)
         first = client.fetch_category("Project")
-        # Replace the page text — second fetch should still return cached value
-        replacement = FakePage("{{Category|has_description=changed}}")
-        site_with_project.pages["Category:Project"] = replacement
+        site_with_project.pages["Category:Project"] = FakePage(
+            "{{Category|has_description=changed}}"
+        )
         second = client.fetch_category("Project")
-        assert first is second
+        assert first is second  # second call must hit cache, not re-parsed text
 
     def test_fetch_property(self, site_with_project: FakeSite) -> None:
         client = WikiClient(site=site_with_project)
@@ -70,7 +42,7 @@ class TestFetchAndCache:
         assert prop.allows_multiple_values is True
 
     def test_missing_page_raises(self) -> None:
-        client = WikiClient(site=FakeSite(pages={"Category:Nope": FakePage("")}))
+        client = WikiClient(site=FakeSite(pages={"Category:Nope": FakePage("")}, auto_create=False))
         with pytest.raises(PageNotFoundError):
             client.fetch_category("Nope")
 
@@ -82,7 +54,7 @@ class TestFetchAndCache:
 
 class TestInheritance:
     def test_child_inherits_parent_fields(self) -> None:
-        site = FakeSite()
+        site = FakeSite(auto_create=False)
         site.pages["Category:Component"] = FakePage(
             "{{Category|has_description=Parent}}\n"
             "{{Property field/subobject|for_property=Has name|is_required=Yes}}\n"
@@ -103,7 +75,7 @@ class TestInheritance:
 
     def test_child_overrides_parent_required_flag(self) -> None:
         """A child Category should be able to flip an inherited optional → required."""
-        site = FakeSite()
+        site = FakeSite(auto_create=False)
         site.pages["Category:Parent"] = FakePage(
             "{{Category|has_description=p}}\n"
             "{{Property field/subobject|for_property=Has thing|is_required=No}}\n"
@@ -169,7 +141,7 @@ class TestWritePage:
     def test_creates_when_absent(self) -> None:
         from wiki_repo_bridge.wiki_client import WriteAction
         page = FakePage(exists=False)
-        site = FakeSite(pages={"Test": page})
+        site = FakeSite(pages={"Test": page}, auto_create=False)
         client = WikiClient(site=site)
         result = client.write_page(self._content("Test"))
         assert result.action == WriteAction.CREATED
@@ -178,7 +150,7 @@ class TestWritePage:
     def test_updates_when_present(self) -> None:
         from wiki_repo_bridge.wiki_client import WriteAction
         page = FakePage(_text="old", exists=True)
-        site = FakeSite(pages={"Test": page})
+        site = FakeSite(pages={"Test": page}, auto_create=False)
         client = WikiClient(site=site)
         result = client.write_page(self._content("Test"))
         assert result.action == WriteAction.UPDATED
@@ -187,7 +159,7 @@ class TestWritePage:
     def test_bootstrap_only_skips_existing(self) -> None:
         from wiki_repo_bridge.wiki_client import WriteAction
         page = FakePage(_text="curated", exists=True)
-        site = FakeSite(pages={"Test": page})
+        site = FakeSite(pages={"Test": page}, auto_create=False)
         client = WikiClient(site=site)
         result = client.write_page(self._content("Test", bootstrap=True))
         assert result.action == WriteAction.SKIPPED
@@ -197,7 +169,7 @@ class TestWritePage:
     def test_bootstrap_only_creates_when_absent(self) -> None:
         from wiki_repo_bridge.wiki_client import WriteAction
         page = FakePage(exists=False)
-        site = FakeSite(pages={"Test": page})
+        site = FakeSite(pages={"Test": page}, auto_create=False)
         client = WikiClient(site=site)
         result = client.write_page(self._content("Test", bootstrap=True))
         assert result.action == WriteAction.CREATED
@@ -205,7 +177,7 @@ class TestWritePage:
     def test_immutable_skips_existing(self) -> None:
         from wiki_repo_bridge.wiki_client import WriteAction
         page = FakePage(_text="frozen", exists=True)
-        site = FakeSite(pages={"Test": page})
+        site = FakeSite(pages={"Test": page}, auto_create=False)
         client = WikiClient(site=site)
         result = client.write_page(self._content("Test", immutable=True))
         assert result.action == WriteAction.SKIPPED
@@ -214,7 +186,7 @@ class TestWritePage:
     def test_dry_run_does_not_edit(self) -> None:
         from wiki_repo_bridge.wiki_client import WriteAction
         page = FakePage(exists=False)
-        site = FakeSite(pages={"Test": page})
+        site = FakeSite(pages={"Test": page}, auto_create=False)
         client = WikiClient(site=site)
         result = client.write_page(self._content("Test"), dry_run=True)
         assert result.action == WriteAction.CREATED

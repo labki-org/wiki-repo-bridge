@@ -1,5 +1,4 @@
-from pathlib import Path
-
+from tests.conftest import make_wiki_yml_file
 from wiki_repo_bridge.pages import (
     render_component_family,
     render_project_bootstrap,
@@ -12,7 +11,6 @@ from wiki_repo_bridge.schema import (
     PropertyField,
     Schema,
 )
-from wiki_repo_bridge.walker import WikiYmlFile
 
 
 def make_schema() -> Schema:
@@ -67,8 +65,7 @@ def make_schema() -> Schema:
     return schema
 
 
-def file_from(rel: str, content: dict) -> WikiYmlFile:
-    return WikiYmlFile(path=Path(f"/tmp/{rel}"), relative_path=Path(rel), content=content)
+file_from = make_wiki_yml_file
 
 
 class TestProjectBootstrap:

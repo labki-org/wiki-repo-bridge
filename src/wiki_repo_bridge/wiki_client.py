@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Protocol
+from typing import Any
 from urllib.parse import urlparse
 
 import mwclient
@@ -36,36 +36,19 @@ class WriteResult:
         return f"[{self.action.value}] {self.page_name}{suffix}"
 
 
-class _PageLike(Protocol):
-    """Minimal subset of mwclient.page.Page we depend on — eases mocking in tests."""
-
-    exists: bool
-
-    def text(self) -> str: ...
-
-    def edit(self, text: str, summary: str) -> object: ...
-
-
-class _SiteLike(Protocol):
-    """Minimal subset of mwclient.Site we depend on."""
-
-    pages: dict[str, _PageLike]
-
-    def login(self, username: str, password: str) -> None: ...
-
-
 @dataclass
 class WikiClient:
     """High-level access to a MediaWiki + SemanticSchemas wiki.
 
-    Constructed from a parsed ``Site`` (real ``mwclient.Site`` in production, a mock in tests)
-    so HTTP setup is decoupled from the bridge's logic.
+    ``site`` is duck-typed against ``mwclient.Site`` — production uses a real Site;
+    tests pass a fake with the same shape (``site.pages[name].text()`` and
+    ``site.pages[name].edit(text, summary)``).
     """
 
-    site: _SiteLike
+    site: Any
     user_agent: str = "wiki-repo-bridge/0.1 (+https://github.com/labki-org/wiki-repo-bridge)"
-    _category_cache: dict[str, CategoryDef] = field(default_factory=dict)
-    _property_cache: dict[str, PropertyDef] = field(default_factory=dict)
+    _category_cache: dict[str, CategoryDef] = field(default_factory=dict, init=False, repr=False)
+    _property_cache: dict[str, PropertyDef] = field(default_factory=dict, init=False, repr=False)
 
     @classmethod
     def from_api_url(cls, api_url: str, **kwargs) -> WikiClient:
@@ -73,11 +56,7 @@ class WikiClient:
         parsed = urlparse(api_url)
         if not parsed.hostname:
             raise ValueError(f"Could not parse hostname from {api_url!r}")
-        path = parsed.path
-        if path.endswith("api.php"):
-            path = path[: -len("api.php")]
-        if not path.endswith("/"):
-            path = path + "/"
+        path = parsed.path.removesuffix("api.php").rstrip("/") + "/"
         site = mwclient.Site(
             host=parsed.hostname,
             scheme=parsed.scheme or "https",
@@ -104,8 +83,7 @@ class WikiClient:
                     "WIKI_REPO_BOT_PASSWORD env vars)."
                 ) from e
             raise
-        # mwclient.Page exposes ``exists`` as a boolean; fall back to truthiness for mocks.
-        exists = getattr(page, "exists", None)
+        exists = getattr(page, "exists", None)  # mocks may omit this attribute
         if exists is False:
             raise PageNotFoundError(f"Page {page_name!r} does not exist")
         text = page.text()

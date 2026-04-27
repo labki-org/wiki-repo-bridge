@@ -1,8 +1,8 @@
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
+from tests.conftest import FakeSite, write_text
 from wiki_repo_bridge.schema import (
     CategoryDef,
     PropertyDef,
@@ -17,43 +17,6 @@ from wiki_repo_bridge.sync import (
 )
 from wiki_repo_bridge.validator import has_errors
 from wiki_repo_bridge.wiki_client import WikiClient, WriteAction
-
-
-@dataclass
-class FakePage:
-    _text: str = ""
-    exists: bool = False
-    edits: list[tuple[str, str]] = field(default_factory=list)
-
-    def text(self) -> str:
-        return self._text
-
-    def edit(self, text: str, summary: str) -> None:
-        self.edits.append((text, summary))
-        self._text = text
-        self.exists = True
-
-
-@dataclass
-class FakeSite:
-    pages: dict[str, FakePage] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        # Auto-create FakePages for any name asked for, defaulting to non-existent
-        original_pages = self.pages
-
-        class AutoDict(dict):
-            def __missing__(inner_self, key):
-                page = FakePage(exists=False)
-                inner_self[key] = page
-                return page
-
-        ad = AutoDict()
-        ad.update(original_pages)
-        self.pages = ad
-
-    def login(self, *args, **kwargs) -> None:
-        pass
 
 
 def make_schema() -> Schema:
@@ -102,14 +65,9 @@ def make_schema() -> Schema:
     return schema
 
 
-def _write(p: Path, text: str) -> None:
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(text)
-
-
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    _write(
+    write_text(
         tmp_path / "wiki.yml",
         "kind: project\n"
         "name: TestScope\n"
@@ -117,7 +75,7 @@ def repo(tmp_path: Path) -> Path:
         "project_status: active\n"
         "repository_url: https://github.com/example/testscope\n",
     )
-    _write(
+    write_text(
         tmp_path / "housing" / "wiki.yml",
         "kind: hardware_component\n"
         "name: TestScope Housing\n"
@@ -125,7 +83,7 @@ def repo(tmp_path: Path) -> Path:
         "description: 3D printed body\n"
         "source_path: housing\n",
     )
-    _write(
+    write_text(
         tmp_path / "optics" / "wiki.yml",
         "kind: hardware_component\n"
         "name: TestScope Optics\n"
@@ -173,7 +131,7 @@ class TestPlanSync:
 
     def test_validation_failure_yields_no_pages(self, tmp_path: Path) -> None:
         # Project file missing required Has description
-        _write(tmp_path / "wiki.yml", "kind: project\nname: BadProject\n")
+        write_text(tmp_path / "wiki.yml", "kind: project\nname: BadProject\n")
         plan = plan_sync(tmp_path, "https://wiki.test/api.php", "v1.0.0", schema=make_schema())
         assert has_errors(plan.issues)
         assert plan.pages == []
@@ -224,7 +182,7 @@ class TestExecuteSync:
             assert site.pages[page_name].edits == []
 
     def test_refuses_to_execute_with_errors(self, tmp_path: Path) -> None:
-        _write(tmp_path / "wiki.yml", "kind: project\nname: bad\n")  # missing required
+        write_text(tmp_path / "wiki.yml", "kind: project\nname: bad\n")  # missing required
         plan = plan_sync(tmp_path, "https://wiki.test/api.php", "v1.0.0", schema=make_schema())
         client = WikiClient(site=FakeSite())
         with pytest.raises(SyncError):

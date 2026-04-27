@@ -8,17 +8,41 @@ from dotenv import load_dotenv
 
 from wiki_repo_bridge.sync import (
     SyncError,
+    SyncPlan,
     categories_used_by_repo,
     execute_sync,
     plan_sync,
 )
 from wiki_repo_bridge.validator import has_errors
+from wiki_repo_bridge.walker import find_wiki_yml_files
 from wiki_repo_bridge.wiki_client import WikiClient
 
-# Auto-load a .env in the current directory before click parses any options,
-# so envvar-backed flags (--bot-user, --bot-password) pick up secrets without
-# needing to source the file manually. No-op if .env doesn't exist.
+# .env in the cwd is auto-loaded so envvar-backed flags pick up secrets.
 load_dotenv()
+
+
+def _build_plan(
+    wiki_url: str,
+    repo_path: str,
+    *,
+    files,
+    tag: str,
+    bot_user: str | None,
+    bot_password: str | None,
+    release_date: str | None = None,
+    changelog: str | None = None,
+) -> tuple[WikiClient, SyncPlan]:
+    """Construct a WikiClient (logging in if creds given), fetch the schema,
+    and produce a SyncPlan for ``wiki_url`` using pre-walked ``files``."""
+    client = WikiClient.from_api_url(wiki_url)
+    if bot_user and bot_password:
+        client.login(bot_user, bot_password)
+    schema = client.load_schema(categories_used_by_repo(repo_path, files=files))
+    plan = plan_sync(
+        repo_path, wiki_url, tag=tag, schema=schema, files=files,
+        release_date=release_date, changelog=changelog,
+    )
+    return client, plan
 
 
 @click.group()
@@ -50,16 +74,15 @@ def validate(
     repo_path: str, wikis: tuple[str, ...], bot_user: str | None, bot_password: str | None
 ) -> None:
     """Validate every wiki.yml under REPO_PATH against each wiki's installed schema."""
-    cats = categories_used_by_repo(repo_path)
+    files = find_wiki_yml_files(repo_path)
     exit_code = 0
     for wiki_url in wikis:
         click.echo(f"=== {wiki_url} ===")
-        client = WikiClient.from_api_url(wiki_url)
-        if bot_user and bot_password:
-            client.login(bot_user, bot_password)
-        schema = client.load_schema(cats)
-        # Use a placeholder tag for validation-only — tag isn't needed structurally.
-        plan = plan_sync(repo_path, wiki_url, tag="v0.0.0", schema=schema)
+        # tag is a placeholder for validation-only — version-match lint will skip
+        _, plan = _build_plan(
+            wiki_url, repo_path, files=files, tag="v0.0.0",
+            bot_user=bot_user, bot_password=bot_password,
+        )
         if not plan.issues:
             click.echo("ok — no issues")
             continue
@@ -116,20 +139,14 @@ def sync(
     dry_run: bool,
 ) -> None:
     """Sync REPO_PATH at TAG to one or more wikis."""
-    cats = categories_used_by_repo(repo_path)
+    files = find_wiki_yml_files(repo_path)
     overall_exit = 0
     for wiki_url in wikis:
         click.echo(f"=== {wiki_url} ===")
-        client = WikiClient.from_api_url(wiki_url)
-        client.login(bot_user, bot_password)
-        schema = client.load_schema(cats)
-        plan = plan_sync(
-            repo_path,
-            wiki_url,
-            tag=tag,
-            schema=schema,
-            release_date=release_date,
-            changelog=changelog,
+        client, plan = _build_plan(
+            wiki_url, repo_path, files=files, tag=tag,
+            bot_user=bot_user, bot_password=bot_password,
+            release_date=release_date, changelog=changelog,
         )
         if has_errors(plan.issues):
             for issue in plan.issues:

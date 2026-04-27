@@ -23,6 +23,7 @@ from wiki_repo_bridge.pages import (
 )
 from wiki_repo_bridge.schema import Schema
 from wiki_repo_bridge.validator import (
+    Kind,
     Severity,
     ValidationIssue,
     has_errors,
@@ -38,8 +39,7 @@ from wiki_repo_bridge.walker import (
 )
 from wiki_repo_bridge.wiki_client import WikiClient, WriteResult
 
-_SUPPORTED_KINDS = ["project", "hardware_component", "software_component",
-                    "firmware_component", "analysis_component"]
+_SUPPORTED_KINDS = [k.value for k in Kind]
 
 
 class SyncError(Exception):
@@ -65,14 +65,17 @@ def plan_sync(
     schema: Schema,
     release_date: str | None = None,
     changelog: str | None = None,
+    files: list[WikiYmlFile] | None = None,
 ) -> SyncPlan:
     """Walk the repo and produce a :class:`SyncPlan` for one destination wiki.
 
     ``schema`` is the installed schema fetched from the destination wiki — kept
-    as a parameter so callers control fetching/caching strategy. Lints the
-    component-major-version-match rule before building pages.
+    as a parameter so callers control fetching/caching strategy. Pre-walked
+    ``files`` may be passed in to avoid re-walking when planning across multiple
+    wikis. Lints the component-major-version-match rule before building pages.
     """
-    files = find_wiki_yml_files(repo_path)
+    if files is None:
+        files = find_wiki_yml_files(repo_path)
     project_file = find_project_file(files)
     component_files = find_component_files(files)
 
@@ -150,17 +153,19 @@ def execute_sync(
     return [client.write_page(p, edit_summary=summary, dry_run=dry_run) for p in plan.pages]
 
 
-def categories_used_by_repo(repo_path: Path | str) -> list[str]:
-    """Inspect the repo's wiki.yml files and return the set of Category names referenced.
+def categories_used_by_repo(
+    repo_path: Path | str, files: list[WikiYmlFile] | None = None
+) -> list[str]:
+    """Categories the repo writes pages for. Always includes Project and Release
+    since the bridge writes them even when no wiki.yml declares them.
 
-    Useful for fetching only the schema slice the repo actually needs from each wiki.
-    Always includes ``Project`` and ``Release`` since those are written by the bridge
-    even if no wiki.yml declares them.
+    Pass pre-walked ``files`` to avoid re-walking the repo.
     """
-    try:
-        files = find_wiki_yml_files(repo_path)
-    except WikiYmlError:
-        return ["Project", "Release"]
+    if files is None:
+        try:
+            files = find_wiki_yml_files(repo_path)
+        except WikiYmlError:
+            return ["Project", "Release"]
 
     cats = {"Project", "Release"}
     for f in files:

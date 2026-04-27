@@ -1,5 +1,4 @@
-from pathlib import Path
-
+from tests.conftest import make_wiki_yml_file
 from wiki_repo_bridge.schema import (
     CategoryDef,
     PropertyDef,
@@ -14,7 +13,6 @@ from wiki_repo_bridge.validator import (
     validate_files,
     yaml_key_to_property_name,
 )
-from wiki_repo_bridge.walker import WikiYmlFile
 
 
 def make_schema() -> Schema:
@@ -51,8 +49,7 @@ def make_schema() -> Schema:
     return schema
 
 
-def file_from_content(rel: str, content: dict) -> WikiYmlFile:
-    return WikiYmlFile(path=Path(f"/tmp/{rel}"), relative_path=Path(rel), content=content)
+file_from_content = make_wiki_yml_file
 
 
 class TestKindMapping:

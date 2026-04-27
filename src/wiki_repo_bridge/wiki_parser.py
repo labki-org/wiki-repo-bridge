@@ -39,18 +39,12 @@ _FALSE_VALUES = {"no", "false", "0"}
 
 def _normalize_property_name(raw: str) -> str:
     """Strip ``Property:`` prefix and surrounding whitespace from a property reference."""
-    raw = raw.strip()
-    if raw.startswith("Property:"):
-        raw = raw[len("Property:") :]
-    return raw.strip()
+    return raw.strip().removeprefix("Property:").strip()
 
 
 def _normalize_category_name(raw: str) -> str:
     """Strip ``Category:`` prefix and surrounding whitespace from a category reference."""
-    raw = raw.strip()
-    if raw.startswith("Category:"):
-        raw = raw[len("Category:") :]
-    return raw.strip()
+    return raw.strip().removeprefix("Category:").strip()
 
 
 def _parse_bool(raw: str) -> bool:
@@ -123,47 +117,40 @@ def _extract_smw_annotations(code) -> dict[str, str]:
     return annotations
 
 
-def parse_property(wikitext: str, name: str) -> PropertyDef:
-    """Parse a Property page's wikitext into a :class:`PropertyDef`.
+def _property_source_from_template(code) -> dict[str, str] | None:
+    """If ``{{Property|...}}`` is present, return its parameters as a dict."""
+    templates = [t for t in code.filter_templates() if t.name.strip() == "Property"]
+    if not templates:
+        return None
+    tpl = templates[0]
+    keys = ["has_description", "has_type", "display_label",
+            "allows_multiple_values", "allows_value", "allows_value_from_category"]
+    return {k: v for k in keys if (v := _template_param(tpl, k)) is not None}
 
-    Tries the raw SMW form first (``[[Has type::Text]]`` etc.) since that's the
-    canonical SemanticSchemas form on the wiki. Falls back to the
-    ``{{Property|...}}`` helper-template form for legacy or imported pages.
+
+def parse_property(wikitext: str, name: str) -> PropertyDef:
+    """Parse a Property page into a :class:`PropertyDef`.
+
+    The canonical wiki form is the ``{{Property|...}}`` dispatcher template;
+    bootstrap pages (``Has description`` etc.) use raw ``[[Has X::Y]]`` SMW
+    annotations because the dispatcher itself depends on them.
     """
     code = mwp.parse(wikitext)
+    source = _property_source_from_template(code) or _extract_smw_annotations(code)
+    if not source:
+        raise ValueError(f"No Property data found in wikitext for {name!r}")
 
-    # Helper-template form (legacy / labki-ontology repo)
-    templates = [t for t in code.filter_templates() if t.name.strip() == "Property"]
-    if templates:
-        tpl = templates[0]
-        multi = _template_param(tpl, "allows_multiple_values")
-        enum_values = _template_param(tpl, "allows_value")
-        return PropertyDef(
-            name=name,
-            description=_template_param(tpl, "has_description"),
-            type=_template_param(tpl, "has_type"),
-            display_label=_template_param(tpl, "display_label"),
-            allows_multiple_values=_parse_bool(multi) if multi else False,
-            allows_value=_split_csv(enum_values) if enum_values else [],
-            allows_value_from_category=_template_param(tpl, "allows_value_from_category"),
-        )
-
-    # Raw SMW form (canonical SemanticSchemas form on the wiki)
-    annotations = _extract_smw_annotations(code)
-    if annotations:
-        multi = annotations.get("allows_multiple_values")
-        enum_values = annotations.get("allows_value")
-        return PropertyDef(
-            name=name,
-            description=annotations.get("has_description"),
-            type=annotations.get("has_type"),
-            display_label=annotations.get("display_label"),
-            allows_multiple_values=_parse_bool(multi) if multi else False,
-            allows_value=_split_csv(enum_values) if enum_values else [],
-            allows_value_from_category=annotations.get("allows_value_from_category"),
-        )
-
-    raise ValueError(f"No Property data found in wikitext for {name!r}")
+    multi = source.get("allows_multiple_values")
+    enum_values = source.get("allows_value")
+    return PropertyDef(
+        name=name,
+        description=source.get("has_description"),
+        type=source.get("has_type"),
+        display_label=source.get("display_label"),
+        allows_multiple_values=_parse_bool(multi) if multi else False,
+        allows_value=_split_csv(enum_values) if enum_values else [],
+        allows_value_from_category=source.get("allows_value_from_category"),
+    )
 
 
 def parse_category(wikitext: str, name: str) -> CategoryDef:

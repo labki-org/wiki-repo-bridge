@@ -36,42 +36,52 @@ STRUCTURAL_KEYS: frozenset[str] = frozenset(
 )
 
 
-# Properties the bridge auto-injects on output for each kind, so the validator
-# doesn't require them to be present in the wiki.yml. Component pages get
-# their parent project filled in from the repo's top-level wiki.yml; family
-# pages get latest_version computed; versioned pages get version + family +
-# design_file_url synthesized by the writer.
+class Severity(StrEnum):
+    ERROR = "error"
+    WARNING = "warning"
+
+
+class Kind(StrEnum):
+    """Recognized values for the top-level ``kind`` field in a wiki.yml."""
+
+    PROJECT = "project"
+    HARDWARE_COMPONENT = "hardware_component"
+    SOFTWARE_COMPONENT = "software_component"
+    FIRMWARE_COMPONENT = "firmware_component"
+    ANALYSIS_COMPONENT = "analysis_component"
+
+    @classmethod
+    def is_component(cls, kind: str | None) -> bool:
+        return kind is not None and kind != cls.PROJECT and kind in {k.value for k in cls}
+
+
+# Properties the bridge auto-injects on output, so the validator doesn't require
+# them in the wiki.yml. Component pages get their project from the repo's
+# top-level wiki.yml; the writer synthesizes family/latest-version/design-file
+# URL from context.
 CI_INJECTED_BY_KIND: dict[str, frozenset[str]] = {
-    "project": frozenset(),
-    "hardware_component": frozenset(
+    Kind.PROJECT: frozenset(),
+    Kind.HARDWARE_COMPONENT: frozenset(
         {"Has project", "Has family", "Has latest version", "Has design file url"}
     ),
-    "software_component": frozenset(
+    Kind.SOFTWARE_COMPONENT: frozenset(
         {"Has project", "Has family", "Has latest version"}
     ),
-    "firmware_component": frozenset(
+    Kind.FIRMWARE_COMPONENT: frozenset(
         {"Has project", "Has family", "Has latest version"}
     ),
-    "analysis_component": frozenset(
+    Kind.ANALYSIS_COMPONENT: frozenset(
         {"Has project", "Has family", "Has latest version"}
     ),
 }
 
 
 def ci_injected_for_kind(kind: str | None) -> frozenset[str]:
-    """Properties the bridge fills in automatically for a given wiki.yml kind.
-
-    Used by the validator to skip required-property checks for properties the
-    user shouldn't have to declare because the writer always provides them.
-    """
+    """Properties the bridge fills in for a given kind, exempt from validator's
+    required-property check."""
     if kind is None:
         return frozenset()
     return CI_INJECTED_BY_KIND.get(kind, frozenset())
-
-
-class Severity(StrEnum):
-    ERROR = "error"
-    WARNING = "warning"
 
 
 @dataclass(frozen=True)
@@ -85,19 +95,21 @@ class ValidationIssue:
 
 
 def kind_to_category_name(kind: str) -> str:
-    """Map a wiki.yml ``kind`` value to a wiki Category page name.
-
-    ``hardware_component`` → ``Hardware component``. MediaWiki capitalizes only the
-    first letter of a page title by default; the YAML uses snake_case and we
-    convert to spaces preserving the rest of the lowercasing.
-    """
+    """``hardware_component`` → ``Hardware component`` (MediaWiki capitalizes
+    only the first letter of a page title; subsequent words stay lowercase)."""
     s = kind.replace("_", " ")
-    return s[:1].upper() + s[1:] if s else s
+    return s[0].upper() + s[1:] if s else s
 
 
 def yaml_key_to_property_name(key: str) -> str:
-    """Map a wiki.yml top-level key to its expected wiki Property name (case-preserving form)."""
+    """``repository_url`` → ``Has repository url`` (wiki Property page name)."""
     return "Has " + key.replace("_", " ")
+
+
+def property_name_to_param(property_name: str) -> str:
+    """``Has repository url`` → ``has_repository_url`` (template parameter form)."""
+    name = property_name[len("Has "):] if property_name.startswith("Has ") else property_name
+    return "has_" + name.replace(" ", "_").lower()
 
 
 def _build_property_index(schema: Schema) -> dict[str, str]:
