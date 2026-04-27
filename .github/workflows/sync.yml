@@ -1,0 +1,94 @@
+name: Sync to wikis
+
+on:
+  workflow_call:
+    inputs:
+      wikis:
+        description: |
+          Newline-separated list of MediaWiki API URLs to sync to.
+          Example:
+            wikis: |
+              https://wiki.example-lab.org/api.php
+              https://example-public.org/wiki/api.php
+        required: true
+        type: string
+      tag:
+        description: Git tag triggering the sync. Defaults to GITHUB_REF_NAME.
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: If true, plan and print without writing.
+        required: false
+        type: boolean
+        default: false
+      changelog:
+        description: Optional changelog text for the Release page.
+        required: false
+        type: string
+        default: ""
+      bridge_ref:
+        description: Git ref of wiki-repo-bridge to use (tag, branch, or SHA).
+        required: false
+        type: string
+        default: main
+    secrets:
+      WIKI_BOT_USER:
+        required: true
+      WIKI_BOT_PASSWORD:
+        required: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout consumer repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout wiki-repo-bridge
+        uses: actions/checkout@v4
+        with:
+          repository: labki-org/wiki-repo-bridge
+          ref: ${{ inputs.bridge_ref }}
+          path: .wiki-repo-bridge
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install bridge
+        run: pip install ./.wiki-repo-bridge
+
+      - name: Run sync
+        env:
+          WIKI_BOT_USER: ${{ secrets.WIKI_BOT_USER }}
+          WIKI_BOT_PASSWORD: ${{ secrets.WIKI_BOT_PASSWORD }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_WIKIS: ${{ inputs.wikis }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_CHANGELOG: ${{ inputs.changelog }}
+          DEFAULT_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-$DEFAULT_TAG}"
+          DRY_RUN_FLAG=""
+          if [ "$INPUT_DRY_RUN" = "true" ]; then DRY_RUN_FLAG="--dry-run"; fi
+          CHANGELOG_FLAG=""
+          if [ -n "$INPUT_CHANGELOG" ]; then CHANGELOG_FLAG="--changelog=$INPUT_CHANGELOG"; fi
+
+          WIKI_ARGS=()
+          while IFS= read -r url; do
+            url_trimmed="$(echo "$url" | xargs || true)"
+            if [ -n "$url_trimmed" ]; then
+              WIKI_ARGS+=("--wiki=$url_trimmed")
+            fi
+          done <<< "$INPUT_WIKIS"
+
+          wiki-repo-bridge sync . \
+            --tag "$TAG" \
+            "${WIKI_ARGS[@]}" \
+            $DRY_RUN_FLAG \
+            $CHANGELOG_FLAG
