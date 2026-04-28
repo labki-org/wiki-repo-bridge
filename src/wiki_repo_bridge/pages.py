@@ -209,9 +209,10 @@ def render_project(file: WikiYmlFile, schema: Schema) -> PageContent:
     derived from wiki.yml. On first create the bridge writes a thin scaffold above
     the markers; humans then own everything outside the markers.
 
-    Project pages don't carry image markup: project-level images are uploaded for
-    use on the Release page (via ``Has image``), and component-level images live
-    on their respective Component pages.
+    Kept deliberately minimal: anything that varies between release tags (specs,
+    images) belongs on the Release / Component pages — not baked into Project.
+    The Project page can pull current values from the latest Release via SMW
+    queries on the wiki side.
     """
     category = schema.categories["Project"]
     kwargs = _content_kwargs(file, category)
@@ -221,8 +222,6 @@ def render_project(file: WikiYmlFile, schema: Schema) -> PageContent:
     project_name = file.content["name"]
     repository_url = file.content.get("repository_url")
     managed_parts = [main]
-    if specs_block := _specs_subobjects(file):
-        managed_parts.append(specs_block)
     if extras := _free_text_sections(file, repository_url=repository_url, tag=None):
         managed_parts.append(extras)
     managed_body = "\n\n".join(managed_parts)
