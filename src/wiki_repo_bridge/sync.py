@@ -24,6 +24,7 @@ from wiki_repo_bridge.images import (
 from wiki_repo_bridge.pages import (
     PageContent,
     render_component,
+    render_component_redirect,
     render_project,
     render_release,
 )
@@ -136,7 +137,7 @@ def plan_sync(
     )
     plan.image_uploads.extend(project_images)
 
-    component_archive_pages: list[str] = []
+    component_versioned_pages: list[str] = []
     for cf, ci in zip(component_files, component_image_lists, strict=True):
         version = str(cf.content.get("version", "0.0.0"))
         component_name = cf.content["name"]
@@ -154,9 +155,12 @@ def plan_sync(
                 readme=component_readme,
             )
         )
+        plan.pages.append(
+            render_component_redirect(project_name, component_name, version)
+        )
         plan.image_uploads.extend(ci)
-        component_archive_pages.append(
-            page_names.component_archive_page(project_name, component_name, version)
+        component_versioned_pages.append(
+            page_names.component_versioned_page(project_name, component_name, version)
         )
 
     artifact_url = (
@@ -166,7 +170,7 @@ def plan_sync(
         render_release(
             project_file,
             tag=tag,
-            component_pages=component_archive_pages,
+            component_pages=component_versioned_pages,
             release_date=rdate,
             changelog=changelog,
             artifact_url=artifact_url,
@@ -280,15 +284,7 @@ def execute_sync(
                            description="latest alias", dry_run=dry_run)
 
     log.info("Writing %d pages", len(plan.pages))
-    results: list[WriteResult] = []
-    for p in plan.pages:
-        if p.version is not None:
-            results.append(
-                client.write_versioned_component(p, edit_summary=summary, dry_run=dry_run)
-            )
-        else:
-            results.append(client.write_page(p, edit_summary=summary, dry_run=dry_run))
-    return results
+    return [client.write_page(p, edit_summary=summary, dry_run=dry_run) for p in plan.pages]
 
 
 def categories_used_by_repo(

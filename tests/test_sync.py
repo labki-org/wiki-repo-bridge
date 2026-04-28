@@ -47,15 +47,15 @@ class TestPlanSync:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
         assert not has_errors(plan.issues)
         names = [p.page_name for p in plan.pages]
+        # Project + per-version Component pages + canonical-redirect Component pages + Release.
         assert "TestScope" in names
-        assert "TestScope/Component/TestScope Housing" in names
+        assert "TestScope/Component/TestScope Housing/v1.0.2" in names
+        assert "TestScope/Component/TestScope Housing" in names  # canonical redirect
+        assert "TestScope/Component/TestScope Optics/v1.0.0" in names
         assert "TestScope/Component/TestScope Optics" in names
         assert "TestScope/Release/1.2.0" in names
-        # Archive subpages are not in the plan — they're created by page-move at execute time.
-        assert "TestScope/Component/TestScope Housing/v1.0.2" not in names
-        assert "TestScope/Component/TestScope Housing/1.0.2" not in names
 
-    def test_release_links_per_version_archive_pages(self, repo: Path) -> None:
+    def test_release_links_per_version_pages(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
         release = next(p for p in plan.pages if p.page_name.endswith("/Release/1.2.0"))
         assert "TestScope/Component/TestScope Housing/v1.0.2" in release.wikitext
@@ -67,8 +67,12 @@ class TestPlanSync:
             if "/Release/" in p.page_name:
                 assert p.immutable, f"{p.page_name} should be immutable"
                 assert p.managed_body is None
+            elif p.redirect_target is not None:
+                # Canonical Component pages are pure redirects to /v_current.
+                assert p.managed_body is None
+                assert p.wikitext == ""
             else:
-                # Project + Component pages are managed-section.
+                # Project page + per-version Component pages are managed-section.
                 assert p.managed_body is not None, f"{p.page_name} should be managed"
                 assert not p.immutable
                 assert not p.bootstrap_only
@@ -146,13 +150,15 @@ class TestImagesInPlan:
         assert "TestScope_hero.png" in aliases
         assert "TestScope_Housing_render.png" in aliases
 
-    def test_component_page_references_alias(self, repo_with_images: Path) -> None:
+    def test_versioned_component_page_references_alias(self, repo_with_images: Path) -> None:
         plan = plan_sync(
             repo_with_images, "https://wiki.test/api.php", "v1.0.0", schema=make_schema(),
         )
-        housing = next(p for p in plan.pages if p.page_name.endswith("/Housing"))
+        # Image lives on the per-version Component page (where SMW data + prose live);
+        # the canonical name is a pure redirect.
+        housing = next(p for p in plan.pages if p.page_name.endswith("/Housing/v1.0.0"))
+        assert housing.managed_body is not None
         assert "File:TestScope_Housing_render.png" in housing.managed_body
-        # SMW annotation is present so other pages can query
         assert "[[Has image::File:TestScope_Housing_render.png]]" in housing.managed_body
 
     def test_release_page_references_only_project_images(self, repo_with_images: Path) -> None:

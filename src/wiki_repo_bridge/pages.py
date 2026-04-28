@@ -65,9 +65,12 @@ class PageContent:
     (humans own what's outside the markers from then on)."""
 
     version: str | None = None
-    """For Component pages: the version this rendering reflects. The executor compares
-    against the version on the existing wiki page; on a bump the existing page is moved
-    to a /v<old> archive subpage before the new content is written."""
+    """For Component pages: the version this rendering reflects. Recorded on the
+    PageContent so the executor can log per-version writes."""
+
+    redirect_target: str | None = None
+    """When set, the page is written as a pure ``#REDIRECT [[<target>]]`` and overwrites
+    any existing content. Used for the canonical Component page → current version redirect."""
 
     immutable: bool = False
     """Skip if the page already exists. Used for Release pages."""
@@ -249,11 +252,12 @@ def render_component(
     images: list[ImageUpload] | None = None,
     readme: ReadmeContent | None = None,
 ) -> PageContent:
-    """Component page in managed-section mode — always reflects the latest version.
+    """Per-version Component page in managed-section mode.
 
-    The CI-owned block carries the dispatcher template (with current version,
-    project link, and design-file URL) plus any free-form sections. The previous
-    version's content gets archived to ``/v<old>`` by the sync flow on bumps.
+    Lives at ``<Project>/Component/<Name>/v<version>`` and carries the dispatcher
+    template (with this version's project link, design-file URL, and source path)
+    plus specs, design files, images, and README. The canonical name (no version)
+    is a separate redirect page produced by :func:`render_component_redirect`.
     """
     category_name = kind_to_category_name(file.kind or "")
     category = schema.categories[category_name]
@@ -280,10 +284,29 @@ def render_component(
     managed_body = "\n\n".join(managed_parts)
 
     return PageContent(
-        page_name=page_names.component_page(project_name, component_name),
+        page_name=page_names.component_versioned_page(project_name, component_name, version),
         managed_body=managed_body,
-        scaffold=f"= {component_name} =\n",
+        scaffold=f"= {component_name} {version} =\n",
         version=version,
+    )
+
+
+def render_component_redirect(
+    project_name: str, component_name: str, version: str,
+) -> PageContent:
+    """Canonical Component page redirecting to the current versioned subpage.
+
+    Overwritten on every sync so the canonical name always points at the latest
+    release. SMW resolves property values pointing at the canonical name through
+    the redirect, so ``Release.Has component=[[<Project>/Component/<Name>]]`` works
+    naturally — but the Release page itself links to the versioned subpage to keep
+    the per-version snapshot stable.
+    """
+    return PageContent(
+        page_name=page_names.component_page(project_name, component_name),
+        redirect_target=page_names.component_versioned_page(
+            project_name, component_name, version,
+        ),
     )
 
 

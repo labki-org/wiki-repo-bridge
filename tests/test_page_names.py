@@ -1,6 +1,6 @@
 from wiki_repo_bridge.page_names import (
-    component_archive_page,
     component_page,
+    component_versioned_page,
     normalize_version,
     project_page,
     release_page,
@@ -28,14 +28,14 @@ class TestPageNames:
 
     def test_archive(self) -> None:
         assert (
-            component_archive_page("MiniXL", "Housing", "1.0.2")
+            component_versioned_page("MiniXL", "Housing", "1.0.2")
             == "MiniXL/Component/Housing/v1.0.2"
         )
 
     def test_archive_strips_then_re_adds_v(self) -> None:
         # Input may have a leading v or not; output always has one.
         assert (
-            component_archive_page("MiniXL", "Housing", "v1.0.2")
+            component_versioned_page("MiniXL", "Housing", "v1.0.2")
             == "MiniXL/Component/Housing/v1.0.2"
         )
 

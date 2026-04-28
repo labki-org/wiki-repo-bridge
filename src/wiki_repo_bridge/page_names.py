@@ -3,9 +3,14 @@
 Page tree convention:
 
     <Project>                                          # managed; humans curate prose
-    <Project>/Component/<Component>                    # managed; latest version
-    <Project>/Component/<Component>/v<version>         # immutable per-version snapshot
+    <Project>/Component/<Component>                    # redirect → current versioned page
+    <Project>/Component/<Component>/v<version>         # managed; per-version content + SMW data
     <Project>/Release/<version>                        # immutable per-tag manifest
+
+The canonical Component page is a pure ``#REDIRECT`` to the currently-released versioned
+subpage. SMW property values that point at the canonical name resolve through the redirect
+to the target. Per-version content (dispatcher template, design files, README, prose)
+all lives on the versioned subpages, where humans can also edit prose between bridge syncs.
 
 Versions in page names use the bare semver string (``1.2.0``), not the git tag (``v1.2.0``).
 Tags get stripped of a leading ``v`` here so ``v1.2.0`` and ``1.2.0`` both produce the same
@@ -29,15 +34,20 @@ def project_page(project: str) -> str:
 
 
 def component_page(project: str, component_name: str) -> str:
-    """The canonical Component page — the latest version (``MiniXL/Component/Housing``)."""
+    """The canonical Component page (``MiniXL/Component/Housing``).
+
+    A pure ``#REDIRECT`` to the currently-released versioned subpage. The bridge
+    overwrites this on every sync to point at the current version.
+    """
     return f"{project}/Component/{component_name}"
 
 
-def component_archive_page(project: str, component_name: str, version: str) -> str:
-    """Per-version snapshot subpage (e.g. ``MiniXL/Component/Housing/v1.0.0``).
+def component_versioned_page(project: str, component_name: str, version: str) -> str:
+    """Per-version Component page (e.g. ``MiniXL/Component/Housing/v1.0.0``).
 
-    Immutable. The leading ``v`` distinguishes version archives from any future
-    non-version subpages a wiki author might add.
+    Carries all SMW data and human-editable prose for that release. The leading
+    ``v`` distinguishes version pages from any future non-version subpages a wiki
+    author might add.
     """
     return f"{project}/Component/{component_name}/v{normalize_version(version)}"
 

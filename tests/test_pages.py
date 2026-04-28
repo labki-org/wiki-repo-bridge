@@ -119,7 +119,7 @@ class TestComponent:
             repository_url="https://github.com/miniscope/MiniXL",
             schema=make_schema(),
         )
-        assert page.page_name == "MiniXL/Component/Housing"
+        assert page.page_name == "MiniXL/Component/Housing/v1.0.2"
         assert page.immutable is False
         assert page.managed_body is not None
         assert "{{Hardware component" in page.managed_body

@@ -20,9 +20,7 @@ from wiki_repo_bridge.schema import CategoryDef, PropertyDef, Schema
 from wiki_repo_bridge.wiki_parser import parse_category, parse_property
 from wiki_repo_bridge.wikitext import (
     has_managed_block,
-    parse_managed_version,
     replace_managed_block,
-    semver_tuple,
     wrap_managed,
 )
 
@@ -217,7 +215,9 @@ class WikiClient:
 
     @staticmethod
     def _compose_text(content: PageContent, page: Any, exists: bool) -> str:
-        """Build the wikitext to write. Handles RMW for managed-body mode."""
+        """Build the wikitext to write. Handles redirect / RMW / plain modes."""
+        if content.redirect_target is not None:
+            return f"#REDIRECT [[{content.redirect_target}]]\n"
         if content.managed_body is None:
             return content.wikitext
         if exists:
@@ -232,66 +232,6 @@ class WikiClient:
         scaffold = content.scaffold.rstrip()
         prefix = f"{scaffold}\n\n" if scaffold else ""
         return f"{prefix}{wrap_managed(content.managed_body)}\n"
-
-    def write_versioned_component(
-        self,
-        content: PageContent,
-        *,
-        edit_summary: str = "wiki-repo-bridge sync",
-        dry_run: bool = False,
-    ) -> WriteResult:
-        """Write a versioned managed Component page, archiving the previous version on a bump.
-
-        Branches on the comparison of ``content.version`` to the version found in the
-        existing page's managed block:
-
-        - page absent → create fresh
-        - same version → RMW the managed block (mid-version wiki.yml edits propagate)
-        - new > old   → move existing page to ``/v<old>``, then create fresh
-        - new < old   → :class:`VersionRegressionError` (refuse to publish older content)
-
-        Falls back to plain ``write_page`` semantics when ``content.version`` is unset.
-        """
-        if content.version is None:
-            return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
-
-        page = self.site.pages[content.page_name]
-        if not page.exists:
-            return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
-
-        existing = page.text() or ""
-        old_version = parse_managed_version(existing)
-
-        # If the page exists but has no parseable version (pre-bridge or hand-curated),
-        # fall through to RMW — write_page's append-managed-block path handles it.
-        if old_version is None:
-            return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
-
-        try:
-            old = semver_tuple(old_version)
-            new = semver_tuple(content.version)
-        except ValueError:
-            return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
-
-        if new == old:
-            return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
-        if new < old:
-            raise VersionRegressionError(
-                f"Refusing to overwrite {content.page_name!r} (v{old_version}) "
-                f"with older v{content.version}"
-            )
-
-        # Bump: move existing → archive subpage, then create fresh at the canonical name.
-        archive_name = f"{content.page_name}/v{old_version}"
-        log.info("Version bump %s → %s; archiving previous to %s",
-                 old_version, content.version, archive_name)
-        self.move_page(
-            content.page_name, archive_name,
-            reason=f"wiki-repo-bridge archive v{old_version}", dry_run=dry_run,
-        )
-        if dry_run:
-            return WriteResult(content.page_name, WriteAction.CREATED, "dry-run (archive+create)")
-        return self.write_page(content, edit_summary=edit_summary, dry_run=False)
 
     def upload_file(
         self,
@@ -335,32 +275,6 @@ class WikiClient:
         log.info("[%s] File:%s (%d bytes)", action, wiki_name, path.stat().st_size)
         return action
 
-    def move_page(
-        self,
-        from_name: str,
-        to_name: str,
-        *,
-        reason: str = "wiki-repo-bridge archive",
-        no_redirect: bool = True,
-        dry_run: bool = False,
-    ) -> None:
-        """Move a page to ``to_name``, suppressing the redirect by default.
-
-        Raises if the source doesn't exist or the destination already exists; both
-        states indicate inconsistency the bridge shouldn't paper over.
-        """
-        if dry_run:
-            return
-        source = self.site.pages[from_name]
-        if not source.exists:
-            raise PageNotFoundError(f"Cannot move missing page {from_name!r}")
-        if self.site.pages[to_name].exists:
-            raise ArchiveConflictError(
-                f"Cannot move {from_name!r} → {to_name!r}: destination already exists"
-            )
-        log.info("Moving %s → %s", from_name, to_name)
-        source.move(to_name, reason=reason, no_redirect=no_redirect)
-
     def load_schema(
         self, category_names: list[str], property_names: list[str] | None = None
     ) -> Schema:
@@ -402,11 +316,3 @@ class PageNotFoundError(Exception):
 
 class WikiAuthError(Exception):
     """Raised when the wiki rejects an unauthenticated request (private wiki without bot creds)."""
-
-
-class ArchiveConflictError(Exception):
-    """Raised when a version-bump archive subpage already exists at the move destination."""
-
-
-class VersionRegressionError(Exception):
-    """Raised when a sync would replace a Component page with an older version."""
