@@ -203,16 +203,17 @@ def _specs_subobjects(file: WikiYmlFile) -> str:
 
 
 def render_project(file: WikiYmlFile, schema: Schema) -> PageContent:
-    """Project page in managed-section mode.
+    """Project page in bootstrap-only mode.
 
-    The CI-owned block carries the dispatcher template and any free-form sections
-    derived from wiki.yml. On first create the bridge writes a thin scaffold above
-    the markers; humans then own everything outside the markers.
+    The bridge writes the page once on first create with a heading, the
+    dispatcher template, and any free-form sections derived from wiki.yml,
+    then leaves it alone forever. Humans (and SMW queries pulling from
+    Release / Component pages) own the page from then on.
 
-    Kept deliberately minimal: anything that varies between release tags (specs,
-    images) belongs on the Release / Component pages — not baked into Project.
-    The Project page can pull current values from the latest Release via SMW
-    queries on the wiki side.
+    Kept deliberately minimal: anything that varies between release tags
+    (specs, images) belongs on the Release / Component pages — not baked
+    into Project. The Project page surfaces current values via SMW queries
+    on the wiki side.
     """
     category = schema.categories["Project"]
     kwargs = _content_kwargs(file, category)
@@ -221,15 +222,14 @@ def render_project(file: WikiYmlFile, schema: Schema) -> PageContent:
 
     project_name = file.content["name"]
     repository_url = file.content.get("repository_url")
-    managed_parts = [main]
+    parts = [f"= {project_name} =", main]
     if extras := _free_text_sections(file, repository_url=repository_url, tag=None):
-        managed_parts.append(extras)
-    managed_body = "\n\n".join(managed_parts)
+        parts.append(extras)
 
     return PageContent(
         page_name=page_names.project_page(project_name),
-        managed_body=managed_body,
-        scaffold=f"= {project_name} =\n",
+        wikitext="\n\n".join(parts) + "\n",
+        bootstrap_only=True,
     )
 
 

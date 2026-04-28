@@ -25,18 +25,17 @@ class TestProject:
         )
         page = render_project(f, make_schema())
         assert page.page_name == "MiniXL"
-        assert page.bootstrap_only is False
+        assert page.bootstrap_only is True
         assert page.immutable is False
-        assert page.managed_body is not None
-        assert "{{Project" in page.managed_body
-        assert "|has_description=Big-FOV miniscope" in page.managed_body
-        assert "|has_repository_url=https://github.com/miniscope/MiniXL" in page.managed_body
-        assert "|has_predecessor=MiniLFOV" in page.managed_body
-        # Free-form section rendered inside the managed block
-        assert "== Features ==" in page.managed_body
-        assert "* Modular optics" in page.managed_body
-        # Scaffold is the human-editable wrapper above the markers
-        assert "MiniXL" in page.scaffold
+        assert page.managed_body is None
+        # Bootstrap-only Project page is plain wikitext written once on first create
+        assert "= MiniXL =" in page.wikitext
+        assert "{{Project" in page.wikitext
+        assert "|has_description=Big-FOV miniscope" in page.wikitext
+        assert "|has_repository_url=https://github.com/miniscope/MiniXL" in page.wikitext
+        assert "|has_predecessor=MiniLFOV" in page.wikitext
+        assert "== Features ==" in page.wikitext
+        assert "* Modular optics" in page.wikitext
 
     def test_drops_structural_keys_from_main_template(self) -> None:
         f = file_from(
@@ -52,13 +51,13 @@ class TestProject:
             },
         )
         page = render_project(f, make_schema())
-        assert "base_path" not in page.managed_body
-        assert "citation" not in page.managed_body
+        assert "base_path" not in page.wikitext
+        assert "citation" not in page.wikitext
 
     def test_default_project_status_when_missing(self) -> None:
         f = file_from("wiki.yml", {"kind": "project", "name": "MiniXL", "description": "x"})
         page = render_project(f, make_schema())
-        assert "|has_project_status=Active" in page.managed_body
+        assert "|has_project_status=Active" in page.wikitext
 
     def test_explicit_project_status_overrides_default(self) -> None:
         f = file_from(
@@ -69,8 +68,8 @@ class TestProject:
             },
         )
         page = render_project(f, make_schema())
-        assert "|has_project_status=archived" in page.managed_body
-        assert "|has_project_status=Active" not in page.managed_body
+        assert "|has_project_status=archived" in page.wikitext
+        assert "|has_project_status=Active" not in page.wikitext
 
 
 class TestDesignFilesRendering:

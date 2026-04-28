@@ -71,8 +71,13 @@ class TestPlanSync:
                 # Canonical Component pages are pure redirects to /v_current.
                 assert p.managed_body is None
                 assert p.wikitext == ""
+            elif "/" not in p.page_name:
+                # Project page is bootstrap-only plain wikitext (write-once).
+                assert p.bootstrap_only, f"{p.page_name} should be bootstrap-only"
+                assert p.managed_body is None
+                assert not p.immutable
             else:
-                # Project page + per-version Component pages are managed-section.
+                # Per-version Component pages are managed-section.
                 assert p.managed_body is not None, f"{p.page_name} should be managed"
                 assert not p.immutable
                 assert not p.bootstrap_only
