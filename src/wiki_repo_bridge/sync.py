@@ -15,12 +15,17 @@ from datetime import date
 from pathlib import Path
 
 from wiki_repo_bridge import page_names
+from wiki_repo_bridge.images import (
+    ImageUpload,
+    alias_filename,
+    discover_images,
+    wiki_filename,
+)
 from wiki_repo_bridge.pages import (
     PageContent,
-    render_component_family,
-    render_project_bootstrap,
+    render_component,
+    render_project,
     render_release,
-    render_versioned_component,
 )
 from wiki_repo_bridge.schema import Schema
 from wiki_repo_bridge.validator import (
@@ -49,12 +54,13 @@ class SyncError(Exception):
 
 @dataclass
 class SyncPlan:
-    """The full set of pages a sync run would write to one destination wiki."""
+    """The full set of pages and image uploads a sync run would push to one wiki."""
 
     wiki_url: str
     project_name: str
     tag: str
     pages: list[PageContent] = field(default_factory=list)
+    image_uploads: list[ImageUpload] = field(default_factory=list)
     issues: list[ValidationIssue] = field(default_factory=list)
 
 
@@ -80,50 +86,73 @@ def plan_sync(
     project_file = find_project_file(files)
     component_files = find_component_files(files)
 
-    # Validate every file against the destination wiki's schema. Stop if errors.
     issues = validate_files(files, schema, expected_kinds=_SUPPORTED_KINDS)
     issues.extend(_check_major_version_match(tag, component_files))
+    project_version = page_names.normalize_version(tag)
+
+    project_name = project_file.content["name"]
+    repo_root = Path(repo_path)
+
+    project_images, project_image_issues = _resolve_images(
+        project_file, project_name, component=None,
+        version=project_version, repo_root=repo_root,
+    )
+    issues.extend(project_image_issues)
+
+    component_image_lists: list[list[ImageUpload]] = []
+    for cf in component_files:
+        component_version = str(cf.content.get("version", "0.0.0"))
+        component_name = cf.content["name"]
+        ci, ci_issues = _resolve_images(
+            cf, project_name, component=component_name,
+            version=component_version, repo_root=repo_root,
+        )
+        component_image_lists.append(ci)
+        issues.extend(ci_issues)
 
     plan = SyncPlan(
         wiki_url=wiki_url,
-        project_name=project_file.content["name"],
+        project_name=project_name,
         tag=tag,
         issues=issues,
     )
     if has_errors(issues):
         return plan
 
-    project_name = project_file.content["name"]
     repository_url = project_file.content.get("repository_url")
     rdate = release_date or date.today().isoformat()
 
-    # Project bootstrap stub (skipped on write if page exists)
-    plan.pages.append(render_project_bootstrap(project_file, schema))
+    plan.pages.append(
+        render_project(project_file, schema, images=project_images)
+    )
+    plan.image_uploads.extend(project_images)
 
-    # Per-component family + versioned snapshot
-    component_versioned_pages: list[str] = []
-    for cf in component_files:
+    component_archive_pages: list[str] = []
+    all_release_images: list[ImageUpload] = list(project_images)
+    for cf, ci in zip(component_files, component_image_lists, strict=True):
         version = str(cf.content.get("version", "0.0.0"))
         component_name = cf.content["name"]
 
         plan.pages.append(
-            render_component_family(cf, project_name, version, schema)
-        )
-        plan.pages.append(
-            render_versioned_component(
+            render_component(
                 cf,
                 project_name=project_name,
                 version=version,
                 tag=tag,
                 repository_url=repository_url,
                 schema=schema,
+                images=ci,
             )
         )
-        component_versioned_pages.append(
-            page_names.versioned_component_page(project_name, component_name, version)
+        plan.image_uploads.extend(ci)
+        all_release_images.extend(ci)
+        # Release links to the per-version archive subpage. The archive doesn't exist
+        # at first sync of a given version — it's created by the next bump's page move,
+        # so the link is a redlink during the active version's lifetime.
+        component_archive_pages.append(
+            page_names.component_archive_page(project_name, component_name, version)
         )
 
-    # Release manifest
     artifact_url = (
         f"{repository_url.rstrip('/')}/tree/{tag}" if repository_url else None
     )
@@ -131,27 +160,89 @@ def plan_sync(
         render_release(
             project_file,
             tag=tag,
-            component_pages=component_versioned_pages,
+            component_pages=component_archive_pages,
             release_date=rdate,
             changelog=changelog,
             artifact_url=artifact_url,
             schema=schema,
+            images=all_release_images,
         )
     )
     return plan
+
+
+def _resolve_images(
+    file: WikiYmlFile,
+    project_name: str,
+    *,
+    component: str | None,
+    version: str,
+    repo_root: Path,
+) -> tuple[list[ImageUpload], list[ValidationIssue]]:
+    """Discover and name the images declared on ``file``. Returns (uploads, issues)."""
+    decls, errors = discover_images(file, repo_root=repo_root)
+    issues = [
+        ValidationIssue(severity=Severity.ERROR, file=str(file.relative_path), message=msg)
+        for msg in errors
+    ]
+    uploads: list[ImageUpload] = []
+    for d in decls:
+        uploads.append(
+            ImageUpload(
+                abs_path=d.abs_path,
+                versioned_name=wiki_filename(
+                    project=project_name, component=component, version=version,
+                    stem=d.stem, suffix=d.suffix,
+                ),
+                alias_name=alias_filename(
+                    project=project_name, component=component,
+                    stem=d.stem, suffix=d.suffix,
+                ),
+                caption=d.caption,
+                kind=d.kind,
+            )
+        )
+    return uploads, issues
 
 
 def execute_sync(
     plan: SyncPlan, client: WikiClient, *, edit_summary: str | None = None,
     dry_run: bool = False,
 ) -> list[WriteResult]:
-    """Write every page in the plan via ``client``. Returns one WriteResult per page."""
+    """Push the plan to the wiki: upload images, then write pages.
+
+    Images are uploaded first under both their versioned and unversioned alias names,
+    so any thumbnail references on Component / Project / Release pages resolve when
+    those pages are written.
+
+    Component pages (those with ``version`` set) take the archive-on-bump path: if the
+    wiki already has a different version of that page, it is moved to a ``/v<old>``
+    archive subpage before the new content is written.
+
+    Returns one ``WriteResult`` per page; image-upload outcomes are not surfaced here
+    (they are best-effort and cannot block the page sync).
+    """
     if has_errors(plan.issues):
         raise SyncError(
             f"Refusing to execute sync to {plan.wiki_url}: validation failed with errors"
         )
     summary = edit_summary or f"wiki-repo-bridge sync ({plan.tag})"
-    return [client.write_page(p, edit_summary=summary, dry_run=dry_run) for p in plan.pages]
+
+    for upload in plan.image_uploads:
+        client.upload_file(upload.abs_path, upload.versioned_name,
+                           description=f"versioned image for {plan.tag}", dry_run=dry_run)
+        client.upload_file(upload.abs_path, upload.alias_name,
+                           description="latest alias", dry_run=dry_run)
+
+    results: list[WriteResult] = []
+    for p in plan.pages:
+        if p.version is not None:
+            results.append(
+                client.write_versioned_component(p, edit_summary=summary, dry_run=dry_run)
+            )
+        else:
+            results.append(client.write_page(p, edit_summary=summary, dry_run=dry_run))
+    return results
 
 
 def categories_used_by_repo(

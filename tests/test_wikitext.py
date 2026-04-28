@@ -1,8 +1,13 @@
+import pytest
+
 from wiki_repo_bridge.wikitext import (
+    has_managed_block,
     render_bullet_list,
     render_section,
     render_subobject,
     render_template,
+    replace_managed_block,
+    wrap_managed,
 )
 
 
@@ -65,3 +70,28 @@ class TestRenderBulletList:
 
     def test_empty(self) -> None:
         assert render_bullet_list([]) == ""
+
+
+class TestManagedMarkers:
+    def test_wrap_managed_brackets_body(self) -> None:
+        out = wrap_managed("body")
+        assert out.startswith("<!-- wiki-repo-bridge Start -->")
+        assert out.endswith("<!-- wiki-repo-bridge End -->")
+        assert "\nbody\n" in out
+
+    def test_has_managed_block(self) -> None:
+        assert has_managed_block(wrap_managed("x"))
+        assert not has_managed_block("plain prose")
+        assert not has_managed_block("<!-- wiki-repo-bridge Start --> only opener")
+
+    def test_replace_managed_block_preserves_outside(self) -> None:
+        existing = f"prefix\n\n{wrap_managed('old')}\n\nsuffix"
+        out = replace_managed_block(existing, "new")
+        assert out.startswith("prefix\n\n")
+        assert out.endswith("\n\nsuffix")
+        assert "old" not in out
+        assert "new" in out
+
+    def test_replace_managed_block_errors_when_markers_missing(self) -> None:
+        with pytest.raises(ValueError):
+            replace_managed_block("no markers here", "new")

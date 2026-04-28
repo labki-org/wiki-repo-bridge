@@ -19,6 +19,7 @@ These helpers do the rendering only — schema-driven property selection lives i
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 
 
@@ -73,3 +74,66 @@ def render_section(heading: str, body: str, level: int = 2) -> str:
 def render_bullet_list(items: Sequence[object]) -> str:
     """Render a sequence as a wiki bullet list."""
     return "\n".join(f"* {_format_value(item)}" for item in items)
+
+
+# Marker-delimited managed sections let humans edit a page outside the markers
+# while the bridge owns the wikitext between them. The marker text is matched
+# verbatim, so don't change it after pages are deployed.
+MANAGED_START = "<!-- wiki-repo-bridge Start -->"
+MANAGED_END = "<!-- wiki-repo-bridge End -->"
+
+
+def wrap_managed(body: str) -> str:
+    """Wrap ``body`` with start/end markers so the bridge can find and replace it later."""
+    return f"{MANAGED_START}\n{body.rstrip()}\n{MANAGED_END}"
+
+
+def has_managed_block(wikitext: str) -> bool:
+    """Whether ``wikitext`` already contains a wiki-repo-bridge managed block."""
+    return MANAGED_START in wikitext and MANAGED_END in wikitext
+
+
+def replace_managed_block(existing: str, new_body: str) -> str:
+    """Replace the content between markers in ``existing`` with ``new_body``.
+
+    Raises ``ValueError`` if markers aren't found or aren't in start/end order.
+    """
+    start = existing.find(MANAGED_START)
+    end = existing.find(MANAGED_END)
+    if start == -1 or end == -1 or end < start:
+        raise ValueError("managed-block markers not found or out of order")
+    before = existing[:start]
+    after = existing[end + len(MANAGED_END):]
+    return f"{before}{wrap_managed(new_body)}{after}"
+
+
+_HAS_VERSION_RE = re.compile(r"\|\s*has_version\s*=\s*([^\n|}]+)")
+
+
+def parse_managed_version(wikitext: str) -> str | None:
+    """Extract the ``has_version=...`` value from the managed block of an existing page.
+
+    Returns the trimmed value or ``None`` if no managed block / no has_version found.
+    Used by the version-bump flow to decide whether to archive before writing.
+    """
+    if not has_managed_block(wikitext):
+        return None
+    start = wikitext.find(MANAGED_START)
+    end = wikitext.find(MANAGED_END)
+    block = wikitext[start:end]
+    m = _HAS_VERSION_RE.search(block)
+    return m.group(1).strip() if m else None
+
+
+def semver_tuple(version: str) -> tuple[int, ...]:
+    """Parse ``1.2.3`` or ``v1.2.3`` to ``(1, 2, 3)`` for comparison.
+
+    Pre-release/build metadata after ``-`` or ``+`` is dropped — proper pre-release
+    comparison is more complex than the bridge needs. Raises ``ValueError`` on non-semver.
+    """
+    s = version[1:] if version.startswith("v") else version
+    s = s.split("-", 1)[0].split("+", 1)[0]
+    parts = s.split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        raise ValueError(f"Not a semver-formatted version: {version!r}")
+    return tuple(int(p) for p in parts)

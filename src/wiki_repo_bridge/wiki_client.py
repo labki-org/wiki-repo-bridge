@@ -17,6 +17,13 @@ import mwclient
 from wiki_repo_bridge.pages import PageContent
 from wiki_repo_bridge.schema import CategoryDef, PropertyDef, Schema
 from wiki_repo_bridge.wiki_parser import parse_category, parse_property
+from wiki_repo_bridge.wikitext import (
+    has_managed_block,
+    parse_managed_version,
+    replace_managed_block,
+    semver_tuple,
+    wrap_managed,
+)
 
 
 class WriteAction(StrEnum):
@@ -172,11 +179,15 @@ class WikiClient:
         edit_summary: str = "wiki-repo-bridge sync",
         dry_run: bool = False,
     ) -> WriteResult:
-        """Write a :class:`PageContent` to the wiki, honoring its immutability flags.
+        """Write a :class:`PageContent` to the wiki, honoring its write mode.
 
-        - ``bootstrap_only=True``: skip if the page already exists. Otherwise create.
-        - ``immutable=True``: skip if the page already exists. Otherwise create.
-        - default: create or update (overwrite existing wikitext).
+        - ``managed_body`` set: read-modify-write between markers. On first create,
+          writes ``scaffold`` + a wrapped managed block. On subsequent syncs, finds
+          the existing markers and replaces only the content between them — so any
+          human prose outside the markers is preserved.
+        - ``bootstrap_only=True``: skip if the page already exists.
+        - ``immutable=True``: skip if the page already exists.
+        - default: overwrite existing wikitext with ``content.wikitext``.
 
         ``dry_run=True`` returns the would-be action without contacting the wiki.
         """
@@ -185,22 +196,163 @@ class WikiClient:
 
         if content.bootstrap_only and exists:
             return WriteResult(
-                content.page_name,
-                WriteAction.SKIPPED,
-                "bootstrap-only and page already exists",
+                content.page_name, WriteAction.SKIPPED, "bootstrap-only and page already exists",
             )
         if content.immutable and exists:
             return WriteResult(
-                content.page_name,
-                WriteAction.SKIPPED,
-                "immutable and page already exists",
+                content.page_name, WriteAction.SKIPPED, "immutable and page already exists",
             )
 
+        new_text = self._compose_text(content, page, exists)
         action = WriteAction.UPDATED if exists else WriteAction.CREATED
         reason = "dry-run" if dry_run else ""
         if not dry_run:
-            page.edit(text=content.wikitext, summary=edit_summary)
+            page.edit(text=new_text, summary=edit_summary)
         return WriteResult(content.page_name, action, reason)
+
+    @staticmethod
+    def _compose_text(content: PageContent, page: Any, exists: bool) -> str:
+        """Build the wikitext to write. Handles RMW for managed-body mode."""
+        if content.managed_body is None:
+            return content.wikitext
+        if exists:
+            existing = page.text() or ""
+            if has_managed_block(existing):
+                return replace_managed_block(existing, content.managed_body)
+            # Page was created by a human (or pre-bridge tooling) without markers.
+            # Preserve their prose by appending the managed block at the end.
+            sep = "" if existing.endswith("\n") else "\n"
+            return f"{existing}{sep}\n{wrap_managed(content.managed_body)}\n"
+        # First create: scaffold above markers, managed block below.
+        scaffold = content.scaffold.rstrip()
+        prefix = f"{scaffold}\n\n" if scaffold else ""
+        return f"{prefix}{wrap_managed(content.managed_body)}\n"
+
+    def write_versioned_component(
+        self,
+        content: PageContent,
+        *,
+        edit_summary: str = "wiki-repo-bridge sync",
+        dry_run: bool = False,
+    ) -> WriteResult:
+        """Write a versioned managed Component page, archiving the previous version on a bump.
+
+        Branches on the comparison of ``content.version`` to the version found in the
+        existing page's managed block:
+
+        - page absent → create fresh
+        - same version → RMW the managed block (mid-version wiki.yml edits propagate)
+        - new > old   → move existing page to ``/v<old>``, then create fresh
+        - new < old   → :class:`VersionRegressionError` (refuse to publish older content)
+
+        Falls back to plain ``write_page`` semantics when ``content.version`` is unset.
+        """
+        if content.version is None:
+            return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
+
+        page = self.site.pages[content.page_name]
+        exists = bool(getattr(page, "exists", False))
+        if not exists:
+            return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
+
+        existing = page.text() or ""
+        old_version = parse_managed_version(existing)
+
+        # If the page exists but has no parseable version (pre-bridge or hand-curated),
+        # fall through to RMW — write_page's append-managed-block path handles it.
+        if old_version is None:
+            return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
+
+        try:
+            old = semver_tuple(old_version)
+            new = semver_tuple(content.version)
+        except ValueError:
+            return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
+
+        if new == old:
+            return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
+        if new < old:
+            raise VersionRegressionError(
+                f"Refusing to overwrite {content.page_name!r} (v{old_version}) "
+                f"with older v{content.version}"
+            )
+
+        # Bump: move existing → archive subpage, then create fresh at the canonical name.
+        archive_name = f"{content.page_name}/v{old_version}"
+        self.move_page(
+            content.page_name, archive_name,
+            reason=f"wiki-repo-bridge archive v{old_version}", dry_run=dry_run,
+        )
+        # Page object still references the old name; mwclient invalidates after a move,
+        # but our composition path only needs the page-absent branch now.
+        if dry_run:
+            return WriteResult(content.page_name, WriteAction.CREATED, "dry-run (archive+create)")
+        # Re-fetch under the canonical name (now empty after the move).
+        return self.write_page(content, edit_summary=edit_summary, dry_run=False)
+
+    def upload_file(
+        self,
+        abs_path: Any,
+        wiki_name: str,
+        *,
+        description: str = "wiki-repo-bridge image upload",
+        dry_run: bool = False,
+    ) -> str:
+        """Upload (or refresh) a binary file as ``File:<wiki_name>``.
+
+        Skips the upload when the wiki already has an identically-named file with a
+        matching SHA-1 — saves bandwidth and avoids no-op revisions on each release.
+
+        Returns one of ``"created"`` / ``"updated"`` / ``"skipped"`` / ``"dry-run"``.
+        """
+        from pathlib import Path
+
+        from wiki_repo_bridge.images import file_sha1
+
+        path = Path(abs_path)
+        if dry_run:
+            return "dry-run"
+
+        local_sha1 = file_sha1(path)
+        try:
+            image = self.site.images[wiki_name]
+            existed = bool(getattr(image, "exists", False))
+            if existed:
+                info = getattr(image, "imageinfo", {}) or {}
+                if info.get("sha1") == local_sha1:
+                    return "skipped"
+        except Exception:
+            existed = False
+
+        with open(path, "rb") as f:
+            self.site.upload(f, filename=wiki_name, description=description, ignore=True)
+        return "updated" if existed else "created"
+
+    def move_page(
+        self,
+        from_name: str,
+        to_name: str,
+        *,
+        reason: str = "wiki-repo-bridge archive",
+        no_redirect: bool = True,
+        dry_run: bool = False,
+    ) -> None:
+        """Move a page to ``to_name``, suppressing the redirect by default.
+
+        Raises if the source doesn't exist or the destination already exists; both
+        states indicate inconsistency the bridge shouldn't paper over.
+        """
+        if dry_run:
+            return
+        source = self.site.pages[from_name]
+        if not bool(getattr(source, "exists", False)):
+            raise PageNotFoundError(f"Cannot move missing page {from_name!r}")
+        dest = self.site.pages[to_name]
+        if bool(getattr(dest, "exists", False)):
+            raise ArchiveConflictError(
+                f"Cannot move {from_name!r} → {to_name!r}: destination already exists"
+            )
+        source.move(to_name, reason=reason, no_redirect=no_redirect)
 
     def load_schema(
         self, category_names: list[str], property_names: list[str] | None = None
@@ -239,3 +391,11 @@ class PageNotFoundError(Exception):
 
 class WikiAuthError(Exception):
     """Raised when the wiki rejects an unauthenticated request (private wiki without bot creds)."""
+
+
+class ArchiveConflictError(Exception):
+    """Raised when a version-bump archive subpage already exists at the move destination."""
+
+
+class VersionRegressionError(Exception):
+    """Raised when a sync would replace a Component page with an older version."""

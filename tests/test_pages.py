@@ -1,9 +1,8 @@
 from tests.conftest import make_wiki_yml_file
 from wiki_repo_bridge.pages import (
-    render_component_family,
-    render_project_bootstrap,
+    render_component,
+    render_project,
     render_release,
-    render_versioned_component,
 )
 from wiki_repo_bridge.schema import (
     CategoryDef,
@@ -69,7 +68,7 @@ def make_schema() -> Schema:
 file_from = make_wiki_yml_file
 
 
-class TestProjectBootstrap:
+class TestProject:
     def test_renders_main_template_and_features(self) -> None:
         f = file_from(
             "wiki.yml",
@@ -84,16 +83,20 @@ class TestProjectBootstrap:
                 "features": ["Modular optics", "No soldering"],
             },
         )
-        page = render_project_bootstrap(f, make_schema())
+        page = render_project(f, make_schema())
         assert page.page_name == "MiniXL"
-        assert page.bootstrap_only is True
-        assert "{{Project" in page.wikitext
-        assert "|has_description=Big-FOV miniscope" in page.wikitext
-        assert "|has_repository_url=https://github.com/miniscope/MiniXL" in page.wikitext
-        assert "|has_predecessor=MiniLFOV" in page.wikitext
-        # Free-form section rendered
-        assert "== Features ==" in page.wikitext
-        assert "* Modular optics" in page.wikitext
+        assert page.bootstrap_only is False
+        assert page.immutable is False
+        assert page.managed_body is not None
+        assert "{{Project" in page.managed_body
+        assert "|has_description=Big-FOV miniscope" in page.managed_body
+        assert "|has_repository_url=https://github.com/miniscope/MiniXL" in page.managed_body
+        assert "|has_predecessor=MiniLFOV" in page.managed_body
+        # Free-form section rendered inside the managed block
+        assert "== Features ==" in page.managed_body
+        assert "* Modular optics" in page.managed_body
+        # Scaffold is the human-editable wrapper above the markers
+        assert "MiniXL" in page.scaffold
 
     def test_drops_structural_keys_from_main_template(self) -> None:
         f = file_from(
@@ -108,18 +111,14 @@ class TestProjectBootstrap:
                 "citation": {},
             },
         )
-        page = render_project_bootstrap(f, make_schema())
-        assert "base_path" not in page.wikitext
-        assert "citation" not in page.wikitext
+        page = render_project(f, make_schema())
+        assert "base_path" not in page.managed_body
+        assert "citation" not in page.managed_body
 
     def test_default_project_status_when_missing(self) -> None:
-        """Wiki requires Has project status; bridge defaults to 'active' if not declared."""
-        f = file_from(
-            "wiki.yml",
-            {"kind": "project", "name": "MiniXL", "description": "x"},
-        )
-        page = render_project_bootstrap(f, make_schema())
-        assert "|has_project_status=active" in page.wikitext
+        f = file_from("wiki.yml", {"kind": "project", "name": "MiniXL", "description": "x"})
+        page = render_project(f, make_schema())
+        assert "|has_project_status=active" in page.managed_body
 
     def test_explicit_project_status_overrides_default(self) -> None:
         f = file_from(
@@ -129,37 +128,13 @@ class TestProjectBootstrap:
                 "project_status": "archived",
             },
         )
-        page = render_project_bootstrap(f, make_schema())
-        assert "|has_project_status=archived" in page.wikitext
-        assert "|has_project_status=active" not in page.wikitext
+        page = render_project(f, make_schema())
+        assert "|has_project_status=archived" in page.managed_body
+        assert "|has_project_status=active" not in page.managed_body
 
 
-class TestComponentFamily:
-    def test_includes_latest_version_pointer(self) -> None:
-        f = file_from(
-            "housing/wiki.yml",
-            {
-                "kind": "hardware_component",
-                "name": "Housing",
-                "description": "3D printed body",
-                "hardware_type": "3D_printed",
-                "source_path": "housing",
-            },
-        )
-        page = render_component_family(f, "MiniXL", "1.0.2", make_schema())
-        assert page.page_name == "MiniXL/Components/Housing"
-        assert page.immutable is False
-        assert "{{Hardware component" in page.wikitext
-        assert "|has_latest_version=MiniXL/Components/Housing/1.0.2" in page.wikitext
-        assert "|has_project=MiniXL" in page.wikitext
-        assert "|has_description=3D printed body" in page.wikitext
-        # Family page must NOT carry version/family — those are versioned-page concerns
-        assert "|has_version=" not in page.wikitext
-        assert "|has_family=" not in page.wikitext
-
-
-class TestVersionedComponent:
-    def test_immutable_with_full_metadata(self) -> None:
+class TestComponent:
+    def test_managed_body_with_full_metadata(self) -> None:
         f = file_from(
             "housing/wiki.yml",
             {
@@ -171,7 +146,7 @@ class TestVersionedComponent:
                 "source_path": "housing",
             },
         )
-        page = render_versioned_component(
+        page = render_component(
             f,
             project_name="MiniXL",
             version="1.0.2",
@@ -179,15 +154,23 @@ class TestVersionedComponent:
             repository_url="https://github.com/miniscope/MiniXL",
             schema=make_schema(),
         )
-        assert page.page_name == "MiniXL/Components/Housing/1.0.2"
-        assert page.immutable is True
-        assert "|has_version=1.0.2" in page.wikitext
-        assert "|has_family=MiniXL/Components/Housing" in page.wikitext
-        assert "|has_project=MiniXL" in page.wikitext
-        # Tag-pinned design-file URL is computed from repo+source_path+tag
+        assert page.page_name == "MiniXL/Components/Housing"
+        assert page.immutable is False
+        assert page.managed_body is not None
+        assert "{{Hardware component" in page.managed_body
+        assert "|has_version=1.0.2" in page.managed_body
+        assert "|has_project=MiniXL" in page.managed_body
+        # has_latest_version is dropped — Component page's own has_version IS the latest.
+        assert "|has_latest_version=" not in page.managed_body
+        # version is recorded on the PageContent for the executor's archive flow.
+        assert page.version == "1.0.2"
+        assert "|has_description=3D printed body" in page.managed_body
+        # Has family is dropped — archive parents are structural (subpage relationship).
+        assert "|has_family=" not in page.managed_body
+        # Tag-pinned design-file URL still computed from repo+source_path+tag
         assert (
             "|has_design_file_url=https://github.com/miniscope/MiniXL/tree/v1.2.0/housing"
-            in page.wikitext
+            in page.managed_body
         )
 
 
@@ -207,8 +190,8 @@ class TestRelease:
             project,
             tag="v1.2.0",
             component_pages=[
-                "MiniXL/Components/Housing/1.0.2",
-                "MiniXL/Components/Optics/1.0.0",
+                "MiniXL/Components/Housing/v1.0.2",
+                "MiniXL/Components/Optics/v1.0.0",
             ],
             release_date="2025-04-14",
             changelog="Updated firmware",
@@ -223,7 +206,7 @@ class TestRelease:
         assert "|has_release_date=2025-04-14" in page.wikitext
         assert "|has_name=MiniXL Release 1.2.0" in page.wikitext
         assert (
-            "|has_component=MiniXL/Components/Housing/1.0.2, MiniXL/Components/Optics/1.0.0"
+            "|has_component=MiniXL/Components/Housing/v1.0.2, MiniXL/Components/Optics/v1.0.0"
             in page.wikitext
         )
         assert "|has_changelog=Updated firmware" in page.wikitext
@@ -235,7 +218,7 @@ class TestRelease:
             {"kind": "project", "name": "MiniXL", "description": "x", "project_status": "active"},
         )
         page = render_release(
-            project, tag="v1.2.0", component_pages=["MiniXL/Components/X/1.0.0"],
+            project, tag="v1.2.0", component_pages=["MiniXL/Components/X/v1.0.0"],
             release_date="2025-04-14", schema=make_schema(),
         )
         assert "has_responsible_party" not in page.wikitext

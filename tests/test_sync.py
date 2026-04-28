@@ -35,11 +35,10 @@ def make_schema() -> Schema:
             PropertyField(name="Has name", required=True),
             PropertyField(name="Has project", required=True),
             PropertyField(name="Has version", required=False),
-            PropertyField(name="Has family", required=False),
-            PropertyField(name="Has latest version", required=False),
             PropertyField(name="Has description", required=False),
             PropertyField(name="Has source path", required=False),
             PropertyField(name="Has design file url", required=False),
+            PropertyField(name="Has image", required=False),
         ],
     )
     schema.categories["Release"] = CategoryDef(
@@ -53,13 +52,14 @@ def make_schema() -> Schema:
             PropertyField(name="Has component", required=False),
             PropertyField(name="Has artifact url", required=False),
             PropertyField(name="Has changelog", required=False),
+            PropertyField(name="Has image", required=False),
         ],
     )
     for prop in [
         "Has description", "Has project status", "Has repository url", "Has name",
-        "Has project", "Has version", "Has family", "Has latest version",
-        "Has source path", "Has design file url", "Has release date", "Has tag",
-        "Has component", "Has artifact url", "Has changelog",
+        "Has project", "Has version", "Has source path", "Has design file url",
+        "Has release date", "Has tag", "Has component", "Has artifact url",
+        "Has changelog", "Has image",
     ]:
         schema.properties[prop] = PropertyDef(name=prop, type="Text")
     return schema
@@ -99,29 +99,31 @@ class TestPlanSync:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
         assert not has_errors(plan.issues)
         names = [p.page_name for p in plan.pages]
-        assert "TestScope" in names  # project bootstrap
+        assert "TestScope" in names
         assert "TestScope/Components/TestScope Housing" in names
-        assert "TestScope/Components/TestScope Housing/1.0.2" in names
         assert "TestScope/Components/TestScope Optics" in names
-        assert "TestScope/Components/TestScope Optics/1.0.0" in names
         assert "TestScope/Releases/1.2.0" in names
+        # Archive subpages are not in the plan — they're created by page-move at execute time.
+        assert "TestScope/Components/TestScope Housing/v1.0.2" not in names
+        assert "TestScope/Components/TestScope Housing/1.0.2" not in names
 
-    def test_release_lists_all_versioned_components(self, repo: Path) -> None:
+    def test_release_links_per_version_archive_pages(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
         release = next(p for p in plan.pages if p.page_name.endswith("/Releases/1.2.0"))
-        assert "TestScope/Components/TestScope Housing/1.0.2" in release.wikitext
-        assert "TestScope/Components/TestScope Optics/1.0.0" in release.wikitext
+        assert "TestScope/Components/TestScope Housing/v1.0.2" in release.wikitext
+        assert "TestScope/Components/TestScope Optics/v1.0.0" in release.wikitext
 
-    def test_immutability_flags(self, repo: Path) -> None:
+    def test_write_modes(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
         for p in plan.pages:
-            if p.page_name == "TestScope":
-                assert p.bootstrap_only
-            elif "/Releases/" in p.page_name or p.page_name.count("/") >= 3:
-                # versioned component (3+ slashes) and Release pages are immutable
+            if "/Releases/" in p.page_name:
                 assert p.immutable, f"{p.page_name} should be immutable"
+                assert p.managed_body is None
             else:
-                assert not p.immutable and not p.bootstrap_only
+                # Project + Component pages are managed-section.
+                assert p.managed_body is not None, f"{p.page_name} should be managed"
+                assert not p.immutable
+                assert not p.bootstrap_only
 
     def test_major_version_mismatch_blocks(self, repo: Path) -> None:
         # tag v2.0.0 but components are at major 1
@@ -151,6 +153,69 @@ class TestPlanSync:
         assert plan.pages == []
 
 
+class TestImagesInPlan:
+    """Image discovery integrates with plan_sync — uploads land in plan.image_uploads
+    and references appear on the right pages."""
+
+    @pytest.fixture
+    def repo_with_images(self, tmp_path: Path) -> Path:
+        write_text(
+            tmp_path / "wiki.yml",
+            "kind: project\nname: TestScope\ndescription: x\nproject_status: active\n"
+            "repository_url: https://github.com/example/testscope\n"
+            "images:\n  - {path: assets/hero.png, caption: Project hero}\n",
+        )
+        (tmp_path / "assets").mkdir()
+        (tmp_path / "assets" / "hero.png").write_bytes(b"x")
+        write_text(
+            tmp_path / "housing" / "wiki.yml",
+            "kind: hardware_component\nname: Housing\nversion: 1.0.0\n"
+            "description: 3D printed body\n"
+            "images:\n  - {path: render.png, caption: Render of housing}\n",
+        )
+        (tmp_path / "housing" / "render.png").write_bytes(b"y")
+        return tmp_path
+
+    def test_image_uploads_collected(self, repo_with_images: Path) -> None:
+        plan = plan_sync(
+            repo_with_images, "https://wiki.test/api.php", "v1.0.0", schema=make_schema(),
+        )
+        assert not has_errors(plan.issues)
+        names = {u.versioned_name for u in plan.image_uploads}
+        assert "TestScope_v1.0.0_hero.png" in names
+        assert "TestScope_Housing_v1.0.0_render.png" in names
+        aliases = {u.alias_name for u in plan.image_uploads}
+        assert "TestScope_hero.png" in aliases
+        assert "TestScope_Housing_render.png" in aliases
+
+    def test_component_page_references_alias(self, repo_with_images: Path) -> None:
+        plan = plan_sync(
+            repo_with_images, "https://wiki.test/api.php", "v1.0.0", schema=make_schema(),
+        )
+        housing = next(p for p in plan.pages if p.page_name.endswith("/Housing"))
+        assert "File:TestScope_Housing_render.png" in housing.managed_body
+        # SMW annotation is present so other pages can query
+        assert "[[Has image::File:TestScope_Housing_render.png]]" in housing.managed_body
+
+    def test_release_page_references_versioned_filename(self, repo_with_images: Path) -> None:
+        plan = plan_sync(
+            repo_with_images, "https://wiki.test/api.php", "v1.0.0", schema=make_schema(),
+        )
+        release = next(p for p in plan.pages if "/Releases/" in p.page_name)
+        # Versioned (immutable) names on Release, not aliases
+        assert "TestScope_Housing_v1.0.0_render.png" in release.wikitext
+        assert "TestScope_v1.0.0_hero.png" in release.wikitext
+        assert "has_image=" in release.wikitext
+
+    def test_missing_image_blocks_plan(self, tmp_path: Path) -> None:
+        write_text(tmp_path / "wiki.yml",
+                   "kind: project\nname: P\ndescription: x\nproject_status: active\n"
+                   "images:\n  - {path: nope.png}\n")
+        plan = plan_sync(tmp_path, "https://wiki.test/api.php", "v1.0.0", schema=make_schema())
+        assert has_errors(plan.issues)
+        assert plan.pages == []  # plan abandons rendering when validation fails
+
+
 class TestCategoriesUsedByRepo:
     def test_minixl_like(self, repo: Path) -> None:
         cats = categories_used_by_repo(repo)
@@ -172,19 +237,18 @@ class TestExecuteSync:
         assert all(r.action == WriteAction.CREATED for r in results)
         assert len(results) == len(plan.pages)
 
-    def test_second_run_skips_immutable_and_bootstrap(self, repo: Path) -> None:
+    def test_second_run_skips_immutable_updates_managed(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
         client = WikiClient(site=FakeSite())
         first = execute_sync(plan, client)
         assert all(r.action == WriteAction.CREATED for r in first)
-        # Re-running with the same plan: bootstrap-only and immutable pages should now skip;
-        # only the family pages should be UPDATED.
+        # Re-running with the same plan: immutable pages skip; managed pages are
+        # UPDATED (the RMW preserves anything outside markers but rewrites the block).
         second = execute_sync(plan, client)
         actions = {r.page_name: r.action for r in second}
-        assert actions["TestScope"] == WriteAction.SKIPPED  # project bootstrap
-        assert actions["TestScope/Releases/1.2.0"] == WriteAction.SKIPPED  # immutable release
-        assert actions["TestScope/Components/TestScope Housing/1.0.2"] == WriteAction.SKIPPED
-        assert actions["TestScope/Components/TestScope Housing"] == WriteAction.UPDATED  # family
+        assert actions["TestScope/Releases/1.2.0"] == WriteAction.SKIPPED
+        assert actions["TestScope"] == WriteAction.UPDATED
+        assert actions["TestScope/Components/TestScope Housing"] == WriteAction.UPDATED
 
     def test_dry_run_does_not_edit(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())

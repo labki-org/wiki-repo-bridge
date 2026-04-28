@@ -32,6 +32,7 @@ STRUCTURAL_KEYS: frozenset[str] = frozenset(
         "citation",     # generates a separate Publication page, not a Project property
         "features",     # free-form list rendered into the bootstrap stub; no property mapping
         "design_files", # free-form file list rendered as a section; no property mapping
+        "images",       # processed by images.discover_images, written as Has image annotations
     }
 )
 
@@ -62,17 +63,11 @@ class Kind(StrEnum):
 CI_INJECTED_BY_KIND: dict[str, frozenset[str]] = {
     Kind.PROJECT: frozenset({"Has project status"}),
     Kind.HARDWARE_COMPONENT: frozenset(
-        {"Has project", "Has family", "Has latest version", "Has design file url"}
+        {"Has project", "Has design file url"}
     ),
-    Kind.SOFTWARE_COMPONENT: frozenset(
-        {"Has project", "Has family", "Has latest version"}
-    ),
-    Kind.FIRMWARE_COMPONENT: frozenset(
-        {"Has project", "Has family", "Has latest version"}
-    ),
-    Kind.ANALYSIS_COMPONENT: frozenset(
-        {"Has project", "Has family", "Has latest version"}
-    ),
+    Kind.SOFTWARE_COMPONENT: frozenset({"Has project"}),
+    Kind.FIRMWARE_COMPONENT: frozenset({"Has project"}),
+    Kind.ANALYSIS_COMPONENT: frozenset({"Has project"}),
 }
 
 

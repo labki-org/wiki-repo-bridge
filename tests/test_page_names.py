@@ -1,9 +1,9 @@
 from wiki_repo_bridge.page_names import (
-    component_family_page,
+    component_archive_page,
+    component_page,
     normalize_version,
     project_page,
     release_page,
-    versioned_component_page,
 )
 
 
@@ -23,19 +23,20 @@ class TestPageNames:
     def test_project(self) -> None:
         assert project_page("MiniXL") == "MiniXL"
 
-    def test_family(self) -> None:
-        assert component_family_page("MiniXL", "Housing") == "MiniXL/Components/Housing"
+    def test_component(self) -> None:
+        assert component_page("MiniXL", "Housing") == "MiniXL/Components/Housing"
 
-    def test_versioned(self) -> None:
+    def test_archive(self) -> None:
         assert (
-            versioned_component_page("MiniXL", "Housing", "1.0.2")
-            == "MiniXL/Components/Housing/1.0.2"
+            component_archive_page("MiniXL", "Housing", "1.0.2")
+            == "MiniXL/Components/Housing/v1.0.2"
         )
 
-    def test_versioned_strips_v(self) -> None:
+    def test_archive_strips_then_re_adds_v(self) -> None:
+        # Input may have a leading v or not; output always has one.
         assert (
-            versioned_component_page("MiniXL", "Housing", "v1.0.2")
-            == "MiniXL/Components/Housing/1.0.2"
+            component_archive_page("MiniXL", "Housing", "v1.0.2")
+            == "MiniXL/Components/Housing/v1.0.2"
         )
 
     def test_release(self) -> None:
