@@ -4,17 +4,17 @@ Page tree convention:
 
     <Project>                                          # managed; humans curate prose
     <Project>/Component/<Component>                    # redirect → current versioned page
-    <Project>/Component/<Component>/v<version>         # managed; per-version content + SMW data
+    <Project>/Component/<Component>/<version>          # managed; per-version content + SMW data
     <Project>/Release/<version>                        # immutable per-tag manifest
+
+Versions in page names use the bare semver string (``1.2.0``), not the git tag (``v1.2.0``);
+the ``v`` prefix is stripped consistently across Component subpages and Release pages so
+URL paths match (``Component/Housing/1.0.0`` and ``Release/1.0.0``).
 
 The canonical Component page is a pure ``#REDIRECT`` to the currently-released versioned
 subpage. SMW property values that point at the canonical name resolve through the redirect
 to the target. Per-version content (dispatcher template, design files, README, prose)
 all lives on the versioned subpages, where humans can also edit prose between bridge syncs.
-
-Versions in page names use the bare semver string (``1.2.0``), not the git tag (``v1.2.0``).
-Tags get stripped of a leading ``v`` here so ``v1.2.0`` and ``1.2.0`` both produce the same
-Release page name.
 """
 
 from __future__ import annotations
@@ -43,13 +43,11 @@ def component_page(project: str, component_name: str) -> str:
 
 
 def component_versioned_page(project: str, component_name: str, version: str) -> str:
-    """Per-version Component page (e.g. ``MiniXL/Component/Housing/v1.0.0``).
+    """Per-version Component page (e.g. ``MiniXL/Component/Housing/1.0.0``).
 
-    Carries all SMW data and human-editable prose for that release. The leading
-    ``v`` distinguishes version pages from any future non-version subpages a wiki
-    author might add.
+    Carries all SMW data and human-editable prose for that release.
     """
-    return f"{project}/Component/{component_name}/v{normalize_version(version)}"
+    return f"{project}/Component/{component_name}/{normalize_version(version)}"
 
 
 def release_page(project: str, tag_or_version: str) -> str:

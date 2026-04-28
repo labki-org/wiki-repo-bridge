@@ -245,38 +245,51 @@ class TestManagedSection:
 
 
 class TestRedirect:
-    def test_redirect_target_writes_redirect_wikitext(self) -> None:
+    def _redirect(self, name: str, target: str):
         from wiki_repo_bridge.pages import PageContent
+        return PageContent(page_name=name, redirect_target=target)
+
+    def test_redirect_target_writes_redirect_wikitext(self) -> None:
         from wiki_repo_bridge.wiki_client import WriteAction
+        from wiki_repo_bridge.wikitext import render_redirect
         site = FakeSite(auto_create=True)
         client = WikiClient(site=site)
-        content = PageContent(
-            page_name="MiniXL/Component/Housing",
-            redirect_target="MiniXL/Component/Housing/v0.1.0",
-        )
-        result = client.write_page(content)
+        target = "MiniXL/Component/Housing/0.1.0"
+        result = client.write_page(self._redirect("MiniXL/Component/Housing", target))
         assert result.action == WriteAction.CREATED
-        assert (
-            site.pages["MiniXL/Component/Housing"]._text
-            == "#REDIRECT [[MiniXL/Component/Housing/v0.1.0]]\n"
-        )
+        assert site.pages["MiniXL/Component/Housing"]._text == render_redirect(target)
 
     def test_redirect_overwrites_existing(self) -> None:
         """Canonical redirect points at current version on every sync; on a bump we
         update it to the new versioned page."""
-        from wiki_repo_bridge.pages import PageContent
         from wiki_repo_bridge.wiki_client import WriteAction
+        from wiki_repo_bridge.wikitext import render_redirect
         site = FakeSite(auto_create=True)
         site.pages["MiniXL/Component/Housing"] = FakePage(
-            _text="#REDIRECT [[MiniXL/Component/Housing/v0.1.0]]\n",
-            exists=True,
+            _text=render_redirect("MiniXL/Component/Housing/0.1.0"), exists=True,
         )
-        site.__post_init__()
         client = WikiClient(site=site)
-        result = client.write_page(PageContent(
-            page_name="MiniXL/Component/Housing",
-            redirect_target="MiniXL/Component/Housing/v0.2.0",
-        ))
+        result = client.write_page(
+            self._redirect("MiniXL/Component/Housing", "MiniXL/Component/Housing/0.2.0")
+        )
         assert result.action == WriteAction.UPDATED
-        assert "v0.2.0" in site.pages["MiniXL/Component/Housing"]._text
+        assert "0.2.0" in site.pages["MiniXL/Component/Housing"]._text
+        assert "0.1.0" not in site.pages["MiniXL/Component/Housing"]._text
+
+    def test_redirect_unchanged_skips(self) -> None:
+        """A re-sync where the canonical redirect already points at the same target
+        is detected as unchanged and reported as SKIPPED — no wiki write, no log noise."""
+        from wiki_repo_bridge.wiki_client import WriteAction
+        from wiki_repo_bridge.wikitext import render_redirect
+        target = "MiniXL/Component/Housing/0.1.0"
+        site = FakeSite(auto_create=True)
+        site.pages["MiniXL/Component/Housing"] = FakePage(
+            _text=render_redirect(target), exists=True,
+        )
+        page_obj = site.pages["MiniXL/Component/Housing"]
+        client = WikiClient(site=site)
+        result = client.write_page(self._redirect("MiniXL/Component/Housing", target))
+        assert result.action == WriteAction.SKIPPED
+        assert result.reason == "unchanged"
+        assert page_obj.edits == []  # no actual write performed
         assert "v0.1.0" not in site.pages["MiniXL/Component/Housing"]._text

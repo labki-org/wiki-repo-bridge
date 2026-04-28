@@ -1,13 +1,15 @@
 """Build the wikitext for each kind of page the bridge writes.
 
-There are three shapes:
+There are four shapes:
 
-* **Component page** — canonical page for a component, always reflecting the latest
-  version. CI owns the wikitext between ``<!-- wiki-repo-bridge Start/End -->`` markers;
-  humans own everything outside. On version bumps the previous page is moved to a
-  ``/v<old>`` subpage so its history is preserved as an archive.
-* **Project page** — same managed-section pattern as Component pages.
-* **Release** — immutable per-tag manifest bundling the per-version component snapshots.
+* **Project page** — managed-section: CI owns the wikitext between
+  ``<!-- wiki-repo-bridge Start/End -->`` markers; humans own everything outside.
+* **Per-version Component page** — same managed-section pattern, lives at
+  ``<Project>/Component/<Name>/<version>``. Carries the dispatcher template,
+  specs, design files, images, and README for that release.
+* **Canonical Component page** — pure ``#REDIRECT`` to the current versioned
+  Component page, overwritten on every sync.
+* **Release** — immutable per-tag manifest bundling the per-version components.
 
 Each renderer takes the parsed wiki.yml file plus context (project name, tag, schema)
 and returns a :class:`PageContent` describing what to write where.
@@ -41,42 +43,33 @@ from wiki_repo_bridge.wikitext import (
 class PageContent:
     """One page the bridge intends to write.
 
-    There are three write modes, chosen by which fields are set:
+    The mode-determining fields are mutually exclusive in practice and resolved
+    in this precedence by :meth:`WikiClient._compose_text`:
 
-    * ``managed_body`` set: read-modify-write between markers. On first create,
-      ``scaffold`` (or empty) provides the human-editable wrapper; on re-sync the
-      content between markers is replaced with a freshly-rendered ``managed_body``.
-    * ``immutable=True``: write once, skip if the page already exists.
-    * ``bootstrap_only=True``: write once if absent; never overwrite.
+    1. ``redirect_target`` set → writes ``#REDIRECT [[<target>]]``, overwriting any
+       existing content. Used for canonical Component pages.
+    2. ``managed_body`` set → read-modify-write between markers. ``scaffold`` provides
+       the human-editable wrapper on first create.
+    3. ``immutable=True`` (with ``wikitext``) → write-once, skip if the page exists.
+    4. plain ``wikitext`` → overwrite unconditionally.
 
-    Plain ``wikitext`` mode (no flags, no managed_body) overwrites unconditionally.
+    A single re-sync that produces wikitext byte-identical to what's already on the
+    page is detected by the writer and reported as ``SKIPPED (unchanged)``.
     """
 
     page_name: str
     wikitext: str = ""
-    """Full page content for plain/immutable/bootstrap pages."""
 
     managed_body: str | None = None
-    """Wikitext to place between markers. When set, scaffold + markers is used on first
-    create and a read-modify-write replaces just the marker block on subsequent syncs."""
-
     scaffold: str = ""
-    """Text written outside the markers on first create. Ignored on subsequent syncs
-    (humans own what's outside the markers from then on)."""
-
-    version: str | None = None
-    """For Component pages: the version this rendering reflects. Recorded on the
-    PageContent so the executor can log per-version writes."""
 
     redirect_target: str | None = None
-    """When set, the page is written as a pure ``#REDIRECT [[<target>]]`` and overwrites
-    any existing content. Used for the canonical Component page → current version redirect."""
+
+    version: str | None = None
+    """For per-version Component pages: the version this rendering reflects."""
 
     immutable: bool = False
-    """Skip if the page already exists. Used for Release pages."""
-
     bootstrap_only: bool = False
-    """Write once if absent; never overwrite. Mostly subsumed by managed_body."""
 
 
 def _filter_to_installed(

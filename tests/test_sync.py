@@ -49,17 +49,17 @@ class TestPlanSync:
         names = [p.page_name for p in plan.pages]
         # Project + per-version Component pages + canonical-redirect Component pages + Release.
         assert "TestScope" in names
-        assert "TestScope/Component/TestScope Housing/v1.0.2" in names
+        assert "TestScope/Component/TestScope Housing/1.0.2" in names
         assert "TestScope/Component/TestScope Housing" in names  # canonical redirect
-        assert "TestScope/Component/TestScope Optics/v1.0.0" in names
+        assert "TestScope/Component/TestScope Optics/1.0.0" in names
         assert "TestScope/Component/TestScope Optics" in names
         assert "TestScope/Release/1.2.0" in names
 
     def test_release_links_per_version_pages(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
         release = next(p for p in plan.pages if p.page_name.endswith("/Release/1.2.0"))
-        assert "TestScope/Component/TestScope Housing/v1.0.2" in release.wikitext
-        assert "TestScope/Component/TestScope Optics/v1.0.0" in release.wikitext
+        assert "TestScope/Component/TestScope Housing/1.0.2" in release.wikitext
+        assert "TestScope/Component/TestScope Optics/1.0.0" in release.wikitext
 
     def test_write_modes(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
@@ -156,7 +156,7 @@ class TestImagesInPlan:
         )
         # Image lives on the per-version Component page (where SMW data + prose live);
         # the canonical name is a pure redirect.
-        housing = next(p for p in plan.pages if p.page_name.endswith("/Housing/v1.0.0"))
+        housing = next(p for p in plan.pages if p.page_name.endswith("/Housing/1.0.0"))
         assert housing.managed_body is not None
         assert "File:TestScope_Housing_render.png" in housing.managed_body
         assert "[[Has image::File:TestScope_Housing_render.png]]" in housing.managed_body
@@ -202,18 +202,16 @@ class TestExecuteSync:
         assert all(r.action == WriteAction.CREATED for r in results)
         assert len(results) == len(plan.pages)
 
-    def test_second_run_skips_immutable_updates_managed(self, repo: Path) -> None:
+    def test_second_run_with_no_changes_skips_everything(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
         client = WikiClient(site=FakeSite())
         first = execute_sync(plan, client)
         assert all(r.action == WriteAction.CREATED for r in first)
-        # Re-running with the same plan: immutable pages skip; managed pages are
-        # UPDATED (the RMW preserves anything outside markers but rewrites the block).
+        # Re-running with no changes: immutable pages skip as before; managed pages
+        # produce identical wikitext and are detected as unchanged → SKIPPED.
+        # No wiki write, no log noise per page.
         second = execute_sync(plan, client)
-        actions = {r.page_name: r.action for r in second}
-        assert actions["TestScope/Release/1.2.0"] == WriteAction.SKIPPED
-        assert actions["TestScope"] == WriteAction.UPDATED
-        assert actions["TestScope/Component/TestScope Housing"] == WriteAction.UPDATED
+        assert all(r.action == WriteAction.SKIPPED for r in second), [str(r) for r in second]
 
     def test_dry_run_does_not_edit(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())

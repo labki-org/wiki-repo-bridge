@@ -259,10 +259,6 @@ def execute_sync(
     so any thumbnail references on Component / Project / Release pages resolve when
     those pages are written.
 
-    Component pages (those with ``version`` set) take the archive-on-bump path: if the
-    wiki already has a different version of that page, it is moved to a ``/v<old>``
-    archive subpage before the new content is written.
-
     Returns one ``WriteResult`` per page; image-upload outcomes are not surfaced here
     (they are best-effort and cannot block the page sync).
     """

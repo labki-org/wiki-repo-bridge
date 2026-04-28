@@ -20,6 +20,7 @@ from wiki_repo_bridge.schema import CategoryDef, PropertyDef, Schema
 from wiki_repo_bridge.wiki_parser import parse_category, parse_property
 from wiki_repo_bridge.wikitext import (
     has_managed_block,
+    render_redirect,
     replace_managed_block,
     wrap_managed,
 )
@@ -206,6 +207,9 @@ class WikiClient:
             )
 
         new_text = self._compose_text(content, page, exists)
+        if exists and page.text() == new_text:
+            log.info("[skipped] %s (unchanged)", content.page_name)
+            return WriteResult(content.page_name, WriteAction.SKIPPED, "unchanged")
         action = WriteAction.UPDATED if exists else WriteAction.CREATED
         reason = "dry-run" if dry_run else ""
         if not dry_run:
@@ -215,9 +219,15 @@ class WikiClient:
 
     @staticmethod
     def _compose_text(content: PageContent, page: Any, exists: bool) -> str:
-        """Build the wikitext to write. Handles redirect / RMW / plain modes."""
+        """Build the wikitext to write — branches on the mode-determining fields.
+
+        Precedence: ``redirect_target`` > ``managed_body`` > plain ``wikitext``.
+        Redirect mode emits a one-line ``#REDIRECT`` page, ignoring everything else.
+        Managed-body mode does read-modify-write between the marker comments when
+        the page already exists.
+        """
         if content.redirect_target is not None:
-            return f"#REDIRECT [[{content.redirect_target}]]\n"
+            return render_redirect(content.redirect_target)
         if content.managed_body is None:
             return content.wikitext
         if exists:
@@ -228,7 +238,6 @@ class WikiClient:
             # Preserve their prose by appending the managed block at the end.
             sep = "" if existing.endswith("\n") else "\n"
             return f"{existing}{sep}\n{wrap_managed(content.managed_body)}\n"
-        # First create: scaffold above markers, managed block below.
         scaffold = content.scaffold.rstrip()
         prefix = f"{scaffold}\n\n" if scaffold else ""
         return f"{prefix}{wrap_managed(content.managed_body)}\n"

@@ -26,17 +26,16 @@ class TestPageNames:
     def test_component(self) -> None:
         assert component_page("MiniXL", "Housing") == "MiniXL/Component/Housing"
 
-    def test_archive(self) -> None:
+    def test_versioned(self) -> None:
         assert (
             component_versioned_page("MiniXL", "Housing", "1.0.2")
-            == "MiniXL/Component/Housing/v1.0.2"
+            == "MiniXL/Component/Housing/1.0.2"
         )
 
-    def test_archive_strips_then_re_adds_v(self) -> None:
-        # Input may have a leading v or not; output always has one.
+    def test_versioned_strips_v(self) -> None:
         assert (
             component_versioned_page("MiniXL", "Housing", "v1.0.2")
-            == "MiniXL/Component/Housing/v1.0.2"
+            == "MiniXL/Component/Housing/1.0.2"
         )
 
     def test_release(self) -> None:

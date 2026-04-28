@@ -119,18 +119,15 @@ class TestComponent:
             repository_url="https://github.com/miniscope/MiniXL",
             schema=make_schema(),
         )
-        assert page.page_name == "MiniXL/Component/Housing/v1.0.2"
+        assert page.page_name == "MiniXL/Component/Housing/1.0.2"
         assert page.immutable is False
         assert page.managed_body is not None
         assert "{{Hardware component" in page.managed_body
         assert "|has_version=1.0.2" in page.managed_body
         assert "|has_project=MiniXL" in page.managed_body
-        # has_latest_version is dropped — Component page's own has_version IS the latest.
         assert "|has_latest_version=" not in page.managed_body
-        # version is recorded on the PageContent for the executor's archive flow.
         assert page.version == "1.0.2"
         assert "|has_description=3D printed body" in page.managed_body
-        # Has family is dropped — archive parents are structural (subpage relationship).
         assert "|has_family=" not in page.managed_body
         # Tag-pinned design-file URL still computed from repo+source_path+tag
         assert (
@@ -205,8 +202,8 @@ class TestRelease:
             project,
             tag="v1.2.0",
             component_pages=[
-                "MiniXL/Component/Housing/v1.0.2",
-                "MiniXL/Component/Optics/v1.0.0",
+                "MiniXL/Component/Housing/1.0.2",
+                "MiniXL/Component/Optics/1.0.0",
             ],
             release_date="2025-04-14",
             changelog="Updated firmware",
@@ -221,7 +218,7 @@ class TestRelease:
         assert "|has_release_date=2025-04-14" in page.wikitext
         assert "|has_name=MiniXL Release 1.2.0" in page.wikitext
         assert (
-            "|has_component=MiniXL/Component/Housing/v1.0.2, MiniXL/Component/Optics/v1.0.0"
+            "|has_component=MiniXL/Component/Housing/1.0.2, MiniXL/Component/Optics/1.0.0"
             in page.wikitext
         )
         assert "|has_changelog=Updated firmware" in page.wikitext
@@ -233,7 +230,7 @@ class TestRelease:
             {"kind": "project", "name": "MiniXL", "description": "x", "project_status": "active"},
         )
         page = render_release(
-            project, tag="v1.2.0", component_pages=["MiniXL/Component/X/v1.0.0"],
+            project, tag="v1.2.0", component_pages=["MiniXL/Component/X/1.0.0"],
             release_date="2025-04-14", schema=make_schema(),
         )
         assert "has_responsible_party" not in page.wikitext

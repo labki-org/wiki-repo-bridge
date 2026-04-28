@@ -19,7 +19,6 @@ These helpers do the rendering only — schema-driven property selection lives i
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 
 
@@ -107,22 +106,9 @@ def replace_managed_block(existing: str, new_body: str) -> str:
     return f"{before}{wrap_managed(new_body)}{after}"
 
 
-_HAS_VERSION_RE = re.compile(r"\|\s*has_version\s*=\s*([^\n|}]+)")
-
-
-def parse_managed_version(wikitext: str) -> str | None:
-    """Extract the ``has_version=...`` value from the managed block of an existing page.
-
-    Returns the trimmed value or ``None`` if no managed block / no has_version found.
-    Used by the version-bump flow to decide whether to archive before writing.
-    """
-    if not has_managed_block(wikitext):
-        return None
-    start = wikitext.find(MANAGED_START)
-    end = wikitext.find(MANAGED_END)
-    block = wikitext[start:end]
-    m = _HAS_VERSION_RE.search(block)
-    return m.group(1).strip() if m else None
+def render_redirect(target: str) -> str:
+    """Render a MediaWiki redirect page pointing at ``target``."""
+    return f"#REDIRECT [[{target}]]\n"
 
 
 def semver_tuple(version: str) -> tuple[int, ...]:
