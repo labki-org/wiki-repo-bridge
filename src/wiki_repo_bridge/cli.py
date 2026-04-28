@@ -37,6 +37,7 @@ def _build_plan(
     client = WikiClient.from_api_url(wiki_url)
     if bot_user and bot_password:
         client.login(bot_user, bot_password)
+        click.echo(f"  logged in as: {getattr(client.site, 'username', '?')}")
     schema = client.load_schema(categories_used_by_repo(repo_path, files=files))
     plan = plan_sync(
         repo_path, wiki_url, tag=tag, schema=schema, files=files,

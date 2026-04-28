@@ -68,8 +68,20 @@ class WikiClient:
         return cls(site=site, **kwargs)
 
     def login(self, username: str, password: str) -> None:
-        """Authenticate to the wiki."""
+        """Authenticate to the wiki, raising :class:`WikiAuthError` if no session results.
+
+        mwclient.Site.login() raises on outright failure but in some edge cases (e.g.
+        certain mediawiki+bot-password combinations) returns success without actually
+        establishing a session. Verifying ``site.username`` afterwards catches that.
+        """
         self.site.login(username, password)
+        actual = getattr(self.site, "username", None)
+        if not actual:
+            raise WikiAuthError(
+                f"Login as {username!r} returned no error but did not establish a "
+                "session — verify the bot username and password are correct (and that "
+                "the username includes the @BotName suffix for bot-password logins)."
+            )
 
     def fetch_wikitext(self, page_name: str) -> str:
         """Return the current wikitext of ``page_name`` (e.g. ``Category:Project``)."""

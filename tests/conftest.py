@@ -28,10 +28,12 @@ class FakePage:
 @dataclass
 class FakeSite:
     """Stand-in for ``mwclient.Site``. By default unknown page lookups return a
-    non-existent FakePage, matching mwclient's behavior."""
+    non-existent FakePage, matching mwclient's behavior. ``login()`` sets
+    ``username`` to mirror mwclient's post-login state."""
 
     pages: dict[str, FakePage] = field(default_factory=dict)
     logged_in_as: tuple[str, str] | None = None
+    username: str | None = None
     auto_create: bool = True
 
     def __post_init__(self) -> None:
@@ -51,6 +53,7 @@ class FakeSite:
 
     def login(self, username: str, password: str) -> None:
         self.logged_in_as = (username, password)
+        self.username = username
 
 
 def write_text(path: Path, content: str) -> None:
