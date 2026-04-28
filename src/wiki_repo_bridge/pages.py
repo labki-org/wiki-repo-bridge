@@ -20,6 +20,7 @@ from typing import Any
 
 from wiki_repo_bridge import page_names
 from wiki_repo_bridge.images import ImageUpload, render_image_thumb
+from wiki_repo_bridge.readme import ReadmeContent
 from wiki_repo_bridge.schema import CategoryDef, Schema
 from wiki_repo_bridge.validator import (
     STRUCTURAL_KEYS,
@@ -98,24 +99,59 @@ def _content_kwargs(file: WikiYmlFile, category: CategoryDef) -> dict[str, str]:
     return _filter_to_installed(chosen, category)
 
 
-def _free_text_sections(file: WikiYmlFile) -> str:
-    """Render any free-form structural blocks (features, design_files) as wiki sections."""
+def _free_text_sections(
+    file: WikiYmlFile, *, repository_url: str | None = None, tag: str | None = None,
+) -> str:
+    """Render any free-form structural blocks (features, design_files) as wiki sections.
+
+    When ``repository_url`` and ``tag`` are both provided, ``design_files`` paths render
+    as external links to the tagged blob URL (e.g. ``github.com/.../blob/v0.1.0/...``)
+    so people clicking from the wiki land on the *exact* version that release describes.
+    """
     sections: list[str] = []
     if features := file.content.get("features"):
         if isinstance(features, list) and features:
             sections.append(render_section("Features", render_bullet_list(features)))
     if design_files := file.content.get("design_files"):
         if isinstance(design_files, dict):
+            base_path = file.content.get("source_path") or _component_dir(file)
             lines = []
             for label, value in design_files.items():
                 pretty_label = label.replace("_", " ")
                 if isinstance(value, list):
                     lines.append(f"* '''{pretty_label}''':")
-                    lines.extend(f"** {v}" for v in value)
+                    lines.extend(
+                        f"** {_design_file_link(v, repository_url, tag, base_path)}"
+                        for v in value
+                    )
                 else:
-                    lines.append(f"* '''{pretty_label}''': {value}")
+                    lines.append(
+                        f"* '''{pretty_label}''': "
+                        f"{_design_file_link(value, repository_url, tag, base_path)}"
+                    )
             sections.append(render_section("Design Files", "\n".join(lines)))
     return "\n\n".join(sections)
+
+
+def _component_dir(file: WikiYmlFile) -> str | None:
+    """Component dir relative to the repo root, derived from where the wiki.yml lives."""
+    parent = file.relative_path.parent
+    return str(parent) if str(parent) not in ("", ".") else None
+
+
+def _design_file_link(
+    value: object, repository_url: str | None, tag: str | None, base_path: str | None,
+) -> str:
+    """Render one design-file entry as a tagged-URL link when possible, else plain text."""
+    text = str(value)
+    if not repository_url or not tag:
+        return text
+    # Skip values that are already URLs or look directory-like — leave to author's intent.
+    if text.startswith(("http://", "https://", "/")):
+        return text
+    rel = f"{base_path}/{text}" if base_path else text
+    url = f"{repository_url.rstrip('/')}/blob/{tag}/{rel}"
+    return f"[{url} {text}]"
 
 
 def _images_section(uploads: list[ImageUpload]) -> str:
@@ -160,14 +196,15 @@ def render_project(
     kwargs.setdefault("has_project_status", DEFAULT_PROJECT_STATUS)
     main = render_template("Project", _filter_to_installed(kwargs, category))
 
+    project_name = file.content["name"]
+    repository_url = file.content.get("repository_url")
     managed_parts = [main]
-    if extras := _free_text_sections(file):
+    if extras := _free_text_sections(file, repository_url=repository_url, tag=None):
         managed_parts.append(extras)
     if images_block := _images_section(images or []):
         managed_parts.append(images_block)
     managed_body = "\n\n".join(managed_parts)
 
-    project_name = file.content["name"]
     return PageContent(
         page_name=page_names.project_page(project_name),
         managed_body=managed_body,
@@ -184,6 +221,7 @@ def render_component(
     schema: Schema,
     *,
     images: list[ImageUpload] | None = None,
+    readme: ReadmeContent | None = None,
 ) -> PageContent:
     """Component page in managed-section mode — always reflects the latest version.
 
@@ -203,10 +241,12 @@ def render_component(
         kwargs["has_design_file_url"] = f"{repository_url.rstrip('/')}/tree/{tag}/{source_path}"
 
     managed_parts = [render_template(category_name, kwargs)]
-    if extras := _free_text_sections(file):
+    if extras := _free_text_sections(file, repository_url=repository_url, tag=tag):
         managed_parts.append(extras)
     if images_block := _images_section(images or []):
         managed_parts.append(images_block)
+    if readme is not None:
+        managed_parts.append(render_section("README", readme.wikitext))
     managed_body = "\n\n".join(managed_parts)
 
     return PageContent(
@@ -227,6 +267,7 @@ def render_release(
     artifact_url: str | None = None,
     schema: Schema,
     images: list[ImageUpload] | None = None,
+    readme: ReadmeContent | None = None,
 ) -> PageContent:
     """Immutable per-tag Release manifest page.
 
@@ -234,6 +275,9 @@ def render_release(
     The Release page links to each image's *versioned* filename, freezing the manifest
     at the moment of the tag — even after the unversioned alias is overwritten by a
     later release, the Release page still points at this release's binaries.
+
+    ``readme`` is the project root README converted to wikitext, snapshotted on this
+    immutable page so each release captures its own README state.
     """
     category = schema.categories["Release"]
     project_name = project_file.content["name"]
@@ -268,6 +312,8 @@ def render_release(
             gallery_lines.append(line)
         gallery = "<gallery mode=\"packed\">\n" + "\n".join(gallery_lines) + "\n</gallery>"
         body_parts.append(render_section("Images", gallery))
+    if readme is not None:
+        body_parts.append(render_section("README", readme.wikitext))
 
     return PageContent(
         page_name=page_names.release_page(project_name, tag),

@@ -33,6 +33,7 @@ STRUCTURAL_KEYS: frozenset[str] = frozenset(
         "features",     # free-form list rendered into the bootstrap stub; no property mapping
         "design_files", # free-form file list rendered as a section; no property mapping
         "images",       # processed by images.discover_images, written as Has image annotations
+        "readme",       # boolean opt-out (`readme: false`) — auto-discover otherwise
     }
 )
 

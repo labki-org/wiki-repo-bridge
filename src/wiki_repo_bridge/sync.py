@@ -27,6 +27,7 @@ from wiki_repo_bridge.pages import (
     render_project,
     render_release,
 )
+from wiki_repo_bridge.readme import ReadmeContent, convert_readme, discover_readme
 from wiki_repo_bridge.schema import Schema
 from wiki_repo_bridge.validator import (
     Kind,
@@ -122,6 +123,10 @@ def plan_sync(
     repository_url = project_file.content.get("repository_url")
     rdate = release_date or date.today().isoformat()
 
+    project_readme = _maybe_load_readme(
+        project_file, project_images, repository_url, tag, repo_root,
+    )
+
     plan.pages.append(
         render_project(project_file, schema, images=project_images)
     )
@@ -132,6 +137,7 @@ def plan_sync(
     for cf, ci in zip(component_files, component_image_lists, strict=True):
         version = str(cf.content.get("version", "0.0.0"))
         component_name = cf.content["name"]
+        component_readme = _maybe_load_readme(cf, ci, repository_url, tag, repo_root)
 
         plan.pages.append(
             render_component(
@@ -142,6 +148,7 @@ def plan_sync(
                 repository_url=repository_url,
                 schema=schema,
                 images=ci,
+                readme=component_readme,
             )
         )
         plan.image_uploads.extend(ci)
@@ -166,9 +173,37 @@ def plan_sync(
             artifact_url=artifact_url,
             schema=schema,
             images=all_release_images,
+            readme=project_readme,
         )
     )
     return plan
+
+
+def _maybe_load_readme(
+    file: WikiYmlFile,
+    images: list[ImageUpload],
+    repository_url: str | None,
+    tag: str,
+    repo_root: Path,
+) -> ReadmeContent | None:
+    """Find and convert ``README.md`` next to ``file``, honoring the ``readme: false`` opt-out.
+
+    Pandoc isn't a hard dep — if the README directive is enabled but ``pypandoc`` isn't
+    installed, we log and skip rather than failing the whole sync.
+    """
+    if file.content.get("readme") is False:
+        return None
+    md_path = discover_readme(file.path.parent)
+    if md_path is None:
+        return None
+    try:
+        return convert_readme(
+            md_path, images=images, repository_url=repository_url,
+            tag=tag, repo_root=repo_root,
+        )
+    except ImportError:
+        # pypandoc missing — README sync is a soft feature, don't fail the whole plan.
+        return None
 
 
 def _resolve_images(
