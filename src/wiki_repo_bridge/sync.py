@@ -9,6 +9,7 @@ and ``execute_sync`` (impure: performs the writes) so callers can dry-run safely
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -174,22 +175,36 @@ def categories_used_by_repo(
     return sorted(cats)
 
 
+_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][\w.+-]+)?$")
+
+
 def _check_major_version_match(
     tag: str, component_files: list[WikiYmlFile]
 ) -> list[ValidationIssue]:
-    """Lint: every component's major version must match the project tag's major version.
-
-    Skipped (with no issues emitted) when the tag isn't semver-shaped — e.g., a branch
-    ref like ``main`` from a manual ``workflow_dispatch`` dry-run. At real release time
-    the trigger is a ``v*`` tag and this check runs.
-    """
-    project_major = page_names.normalize_version(tag).split(".", 1)[0]
-    if not project_major.isdigit():
-        return []
+    """Lint: tag must be semver-formatted (``v1.2.0`` or ``1.2.0``) and every
+    component's major version must match the project tag's major version."""
+    project_version = page_names.normalize_version(tag)
+    if not _SEMVER_RE.match(project_version):
+        return [ValidationIssue(
+            severity=Severity.ERROR,
+            file="<tag>",
+            message=(
+                f"tag {tag!r} must be semver-formatted (e.g., v1.2.0). "
+                "For testing without a real release, use --tag v0.0.0."
+            ),
+        )]
+    project_major = project_version.split(".", 1)[0]
     issues: list[ValidationIssue] = []
     for cf in component_files:
         component_version = str(cf.content.get("version", ""))
         if not component_version:
+            continue
+        if not _SEMVER_RE.match(page_names.normalize_version(component_version)):
+            issues.append(ValidationIssue(
+                severity=Severity.ERROR,
+                file=str(cf.relative_path),
+                message=f"component version {component_version!r} is not semver-formatted",
+            ))
             continue
         component_major = component_version.split(".", 1)[0]
         if component_major != project_major:

@@ -129,11 +129,19 @@ class TestPlanSync:
         assert has_errors(plan.issues)
         assert any("major does not match" in i.message for i in plan.issues)
 
-    def test_non_semver_tag_skips_major_lint(self, repo: Path) -> None:
-        """A manual workflow_dispatch with no tag input passes the branch ref
-        (e.g. 'main') as the tag — major-version-match should skip rather than fail."""
+    def test_non_semver_tag_errors(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "main", schema=make_schema())
-        assert not any("major does not match" in i.message for i in plan.issues)
+        assert has_errors(plan.issues)
+        assert any("must be semver-formatted" in i.message for i in plan.issues)
+
+    def test_non_semver_component_version_errors(self, tmp_path: Path) -> None:
+        write_text(tmp_path / "wiki.yml",
+                   "kind: project\nname: P\ndescription: x\nproject_status: active\n")
+        write_text(tmp_path / "h" / "wiki.yml",
+                   "kind: hardware_component\nname: H\nversion: not-a-version\n")
+        plan = plan_sync(tmp_path, "https://wiki.test/api.php", "v1.0.0", schema=make_schema())
+        assert has_errors(plan.issues)
+        assert any("not semver-formatted" in i.message for i in plan.issues)
 
     def test_validation_failure_yields_no_pages(self, tmp_path: Path) -> None:
         # Project file missing required Has description
