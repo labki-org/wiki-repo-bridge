@@ -132,9 +132,7 @@ def plan_sync(
         project_file, project_images, repository_url, tag, repo_root,
     )
 
-    plan.pages.append(
-        render_project(project_file, schema, images=project_images)
-    )
+    plan.pages.append(render_project(project_file, schema))
     plan.image_uploads.extend(project_images)
 
     component_versioned_pages: list[str] = []

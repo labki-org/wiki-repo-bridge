@@ -202,14 +202,16 @@ def _specs_subobjects(file: WikiYmlFile) -> str:
     return "\n".join(parts)
 
 
-def render_project(
-    file: WikiYmlFile, schema: Schema, *, images: list[ImageUpload] | None = None,
-) -> PageContent:
+def render_project(file: WikiYmlFile, schema: Schema) -> PageContent:
     """Project page in managed-section mode.
 
     The CI-owned block carries the dispatcher template and any free-form sections
     derived from wiki.yml. On first create the bridge writes a thin scaffold above
     the markers; humans then own everything outside the markers.
+
+    Project pages don't carry image markup: project-level images are uploaded for
+    use on the Release page (via ``Has image``), and component-level images live
+    on their respective Component pages.
     """
     category = schema.categories["Project"]
     kwargs = _content_kwargs(file, category)
@@ -223,8 +225,6 @@ def render_project(
         managed_parts.append(specs_block)
     if extras := _free_text_sections(file, repository_url=repository_url, tag=None):
         managed_parts.append(extras)
-    if images_block := _images_section(images or []):
-        managed_parts.append(images_block)
     managed_body = "\n\n".join(managed_parts)
 
     return PageContent(
