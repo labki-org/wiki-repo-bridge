@@ -224,6 +224,28 @@ class TestRelease:
         assert "|has_changelog=Updated firmware" in page.wikitext
         assert "|has_responsible_party=Aharoni Lab" in page.wikitext
 
+    def test_release_snapshots_project_specs(self) -> None:
+        project = file_from(
+            "wiki.yml",
+            {
+                "kind": "project", "name": "MiniXL", "description": "x",
+                "project_status": "active",
+                "specs": [
+                    {"name": "Field of View", "value": "3.5", "unit": "mm"},
+                    {"name": "Weight", "value": "3.5", "unit": "g"},
+                ],
+            },
+        )
+        page = render_release(
+            project, tag="v1.0.0", component_pages=["MiniXL/Component/X/1.0.0"],
+            release_date="2025-04-14", schema=make_schema(),
+        )
+        assert "{{Specification/subobject" in page.wikitext
+        assert "|has_name=Field of View" in page.wikitext
+        assert "|has_value=3.5" in page.wikitext
+        assert "|has_unit=mm" in page.wikitext
+        assert "|has_name=Weight" in page.wikitext
+
     def test_release_omits_responsible_party_when_project_lacks_one(self) -> None:
         project = file_from(
             "wiki.yml",

@@ -322,6 +322,11 @@ def render_release(
     ``Has image`` only; visual rendering of versioned thumbnails is left off the
     Release page since the queryable annotation is what matters.
 
+    Project-level ``specs:`` are emitted as ``{{Specification/subobject|...}}``
+    invocations so each release page snapshots the project's specifications at
+    that tag (lets you query "what was the FOV in v0.1.0?" without depending on
+    the live Project page state).
+
     ``readme`` is the project root README converted to wikitext, snapshotted on this
     immutable page so each release captures its own README state.
     """
@@ -348,6 +353,8 @@ def render_release(
 
     kwargs = _filter_to_installed(kwargs, category)
     body_parts = [render_template("Release", kwargs)]
+    if specs_block := _specs_subobjects(project_file):
+        body_parts.append(specs_block)
     if readme is not None:
         body_parts.append(render_section("README", readme.wikitext))
 
