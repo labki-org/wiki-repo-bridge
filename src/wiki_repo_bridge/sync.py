@@ -177,9 +177,15 @@ def categories_used_by_repo(
 def _check_major_version_match(
     tag: str, component_files: list[WikiYmlFile]
 ) -> list[ValidationIssue]:
-    """Lint: every component's major version must match the project tag's major version."""
-    project_version = page_names.normalize_version(tag)
-    project_major = project_version.split(".", 1)[0]
+    """Lint: every component's major version must match the project tag's major version.
+
+    Skipped (with no issues emitted) when the tag isn't semver-shaped — e.g., a branch
+    ref like ``main`` from a manual ``workflow_dispatch`` dry-run. At real release time
+    the trigger is a ``v*`` tag and this check runs.
+    """
+    project_major = page_names.normalize_version(tag).split(".", 1)[0]
+    if not project_major.isdigit():
+        return []
     issues: list[ValidationIssue] = []
     for cf in component_files:
         component_version = str(cf.content.get("version", ""))
