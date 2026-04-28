@@ -108,7 +108,12 @@ def _free_text_sections(file: WikiYmlFile) -> str:
         if isinstance(design_files, dict):
             lines = []
             for label, value in design_files.items():
-                lines.append(f"* '''{label.replace('_', ' ')}''': {value}")
+                pretty_label = label.replace("_", " ")
+                if isinstance(value, list):
+                    lines.append(f"* '''{pretty_label}''':")
+                    lines.extend(f"** {v}" for v in value)
+                else:
+                    lines.append(f"* '''{pretty_label}''': {value}")
             sections.append(render_section("Design Files", "\n".join(lines)))
     return "\n\n".join(sections)
 

@@ -133,6 +133,31 @@ class TestProject:
         assert "|has_project_status=active" not in page.managed_body
 
 
+class TestDesignFilesRendering:
+    def test_dict_with_list_values_renders_as_nested_bullets(self) -> None:
+        f = file_from(
+            "housing/wiki.yml",
+            {
+                "kind": "hardware_component",
+                "name": "Housing",
+                "version": "1.0.0",
+                "description": "x",
+                "design_files": {
+                    "fusion_360": ["a.f3d", "b.f3d"],
+                    "fabrication": "single.stl",
+                },
+            },
+        )
+        page = render_component(
+            f, project_name="P", version="1.0.0", tag="v1.0.0",
+            repository_url=None, schema=make_schema(),
+        )
+        assert "* '''fusion 360''':\n** a.f3d\n** b.f3d" in page.managed_body
+        assert "* '''fabrication''': single.stl" in page.managed_body
+        # Critical: no Python list literal leaking into wikitext
+        assert "['a.f3d'" not in page.managed_body
+
+
 class TestComponent:
     def test_managed_body_with_full_metadata(self) -> None:
         f = file_from(
