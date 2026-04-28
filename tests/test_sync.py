@@ -48,23 +48,23 @@ class TestPlanSync:
         assert not has_errors(plan.issues)
         names = [p.page_name for p in plan.pages]
         assert "TestScope" in names
-        assert "TestScope/Components/TestScope Housing" in names
-        assert "TestScope/Components/TestScope Optics" in names
-        assert "TestScope/Releases/1.2.0" in names
+        assert "TestScope/Component/TestScope Housing" in names
+        assert "TestScope/Component/TestScope Optics" in names
+        assert "TestScope/Release/1.2.0" in names
         # Archive subpages are not in the plan — they're created by page-move at execute time.
-        assert "TestScope/Components/TestScope Housing/v1.0.2" not in names
-        assert "TestScope/Components/TestScope Housing/1.0.2" not in names
+        assert "TestScope/Component/TestScope Housing/v1.0.2" not in names
+        assert "TestScope/Component/TestScope Housing/1.0.2" not in names
 
     def test_release_links_per_version_archive_pages(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
-        release = next(p for p in plan.pages if p.page_name.endswith("/Releases/1.2.0"))
-        assert "TestScope/Components/TestScope Housing/v1.0.2" in release.wikitext
-        assert "TestScope/Components/TestScope Optics/v1.0.0" in release.wikitext
+        release = next(p for p in plan.pages if p.page_name.endswith("/Release/1.2.0"))
+        assert "TestScope/Component/TestScope Housing/v1.0.2" in release.wikitext
+        assert "TestScope/Component/TestScope Optics/v1.0.0" in release.wikitext
 
     def test_write_modes(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())
         for p in plan.pages:
-            if "/Releases/" in p.page_name:
+            if "/Release/" in p.page_name:
                 assert p.immutable, f"{p.page_name} should be immutable"
                 assert p.managed_body is None
             else:
@@ -155,14 +155,15 @@ class TestImagesInPlan:
         # SMW annotation is present so other pages can query
         assert "[[Has image::File:TestScope_Housing_render.png]]" in housing.managed_body
 
-    def test_release_page_references_versioned_filename(self, repo_with_images: Path) -> None:
+    def test_release_page_references_only_project_images(self, repo_with_images: Path) -> None:
         plan = plan_sync(
             repo_with_images, "https://wiki.test/api.php", "v1.0.0", schema=make_schema(),
         )
-        release = next(p for p in plan.pages if "/Releases/" in p.page_name)
-        # Versioned (immutable) names on Release, not aliases
-        assert "TestScope_Housing_v1.0.0_render.png" in release.wikitext
+        release = next(p for p in plan.pages if "/Release/" in p.page_name)
+        # Project image (versioned name) is referenced; component images live on
+        # the Component pages, not duplicated on Release.
         assert "TestScope_v1.0.0_hero.png" in release.wikitext
+        assert "TestScope_Housing_v1.0.0_render.png" not in release.wikitext
         assert "has_image=" in release.wikitext
 
     def test_missing_image_blocks_plan(self, tmp_path: Path) -> None:
@@ -204,9 +205,9 @@ class TestExecuteSync:
         # UPDATED (the RMW preserves anything outside markers but rewrites the block).
         second = execute_sync(plan, client)
         actions = {r.page_name: r.action for r in second}
-        assert actions["TestScope/Releases/1.2.0"] == WriteAction.SKIPPED
+        assert actions["TestScope/Release/1.2.0"] == WriteAction.SKIPPED
         assert actions["TestScope"] == WriteAction.UPDATED
-        assert actions["TestScope/Components/TestScope Housing"] == WriteAction.UPDATED
+        assert actions["TestScope/Component/TestScope Housing"] == WriteAction.UPDATED
 
     def test_dry_run_does_not_edit(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "v1.2.0", schema=make_schema())

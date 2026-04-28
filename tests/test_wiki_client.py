@@ -247,7 +247,7 @@ class TestManagedSection:
 class TestVersionedComponent:
     """Archive-on-bump flow: existing page is moved to /v<old> when version increases."""
 
-    def _content(self, version: str, page_name: str = "MiniXL/Components/Housing"):
+    def _content(self, version: str, page_name: str = "MiniXL/Component/Housing"):
         from wiki_repo_bridge.pages import PageContent
         body = "{{Hardware component\n|has_name=Housing\n|has_version=" + version + "\n}}"
         return PageContent(
@@ -260,9 +260,9 @@ class TestVersionedComponent:
         client = WikiClient(site=site)
         result = client.write_versioned_component(self._content("1.0.0"))
         assert result.action == WriteAction.CREATED
-        assert site.pages["MiniXL/Components/Housing"].exists
+        assert site.pages["MiniXL/Component/Housing"].exists
         # No archive subpage was created.
-        archive = "MiniXL/Components/Housing/v1.0.0"
+        archive = "MiniXL/Component/Housing/v1.0.0"
         assert archive not in site.pages or not site.pages[archive].exists
 
     def test_same_version_rmw_no_archive(self) -> None:
@@ -274,14 +274,14 @@ class TestVersionedComponent:
             "Some human prose.\n\n"
             f"{wrap_managed('{{Hardware component|has_version=1.0.0}}')}\n"
         )
-        site.pages["MiniXL/Components/Housing"] = FakePage(_text=existing, exists=True)
+        site.pages["MiniXL/Component/Housing"] = FakePage(_text=existing, exists=True)
         site.__post_init__()  # re-link site refs after manual injection
         client = WikiClient(site=site)
         result = client.write_versioned_component(self._content("1.0.0"))
         assert result.action == WriteAction.UPDATED
         # No archive created; human prose preserved.
-        assert not site.pages["MiniXL/Components/Housing/v1.0.0"].exists
-        assert "Some human prose." in site.pages["MiniXL/Components/Housing"]._text
+        assert not site.pages["MiniXL/Component/Housing/v1.0.0"].exists
+        assert "Some human prose." in site.pages["MiniXL/Component/Housing"]._text
 
     def test_version_bump_archives_previous(self) -> None:
         from wiki_repo_bridge.wiki_client import WriteAction
@@ -292,25 +292,25 @@ class TestVersionedComponent:
             "Human notes.\n\n"
             f"{wrap_managed('{{Hardware component|has_version=1.0.0}}')}\n"
         )
-        site.pages["MiniXL/Components/Housing"] = FakePage(_text=existing, exists=True)
+        site.pages["MiniXL/Component/Housing"] = FakePage(_text=existing, exists=True)
         site.__post_init__()
         client = WikiClient(site=site)
         result = client.write_versioned_component(self._content("1.0.1"))
         assert result.action == WriteAction.CREATED  # canonical page was empty after move
         # Archive holds the previous content (including human prose).
-        archive = site.pages["MiniXL/Components/Housing/v1.0.0"]
+        archive = site.pages["MiniXL/Component/Housing/v1.0.0"]
         assert archive.exists
         assert "Human notes." in archive._text
         assert "has_version=1.0.0" in archive._text
         # New canonical page has new version.
-        new = site.pages["MiniXL/Components/Housing"]
+        new = site.pages["MiniXL/Component/Housing"]
         assert "has_version=1.0.1" in new._text
 
     def test_version_regression_errors(self) -> None:
         from wiki_repo_bridge.wiki_client import VersionRegressionError
         from wiki_repo_bridge.wikitext import wrap_managed
         site = FakeSite(auto_create=True)
-        site.pages["MiniXL/Components/Housing"] = FakePage(
+        site.pages["MiniXL/Component/Housing"] = FakePage(
             _text=wrap_managed("{{Hardware component|has_version=1.0.5}}"),
             exists=True,
         )
@@ -324,11 +324,11 @@ class TestVersionedComponent:
         from wiki_repo_bridge.wiki_client import ArchiveConflictError
         from wiki_repo_bridge.wikitext import wrap_managed
         site = FakeSite(auto_create=True)
-        site.pages["MiniXL/Components/Housing"] = FakePage(
+        site.pages["MiniXL/Component/Housing"] = FakePage(
             _text=wrap_managed("{{Hardware component|has_version=1.0.0}}"),
             exists=True,
         )
-        site.pages["MiniXL/Components/Housing/v1.0.0"] = FakePage(
+        site.pages["MiniXL/Component/Housing/v1.0.0"] = FakePage(
             _text="oh no, somehow this already exists",
             exists=True,
         )

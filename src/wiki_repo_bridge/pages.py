@@ -32,6 +32,7 @@ from wiki_repo_bridge.walker import WikiYmlFile
 from wiki_repo_bridge.wikitext import (
     render_bullet_list,
     render_section,
+    render_subobject,
     render_template,
 )
 
@@ -178,7 +179,31 @@ def _images_section(uploads: list[ImageUpload]) -> str:
     return render_section("Images", body)
 
 
-DEFAULT_PROJECT_STATUS = "active"
+DEFAULT_PROJECT_STATUS = "Active"
+
+
+def _specs_subobjects(file: WikiYmlFile) -> str:
+    """Render ``specs:`` entries as ``{{Specification/subobject|...}}`` invocations.
+
+    Each entry maps ``name`` / ``value`` / ``unit`` keys to the corresponding
+    ``has_name`` / ``has_value`` / ``has_unit`` template parameters. Entries with
+    only some fields render those fields and omit the rest.
+    """
+    specs = file.content.get("specs")
+    if not isinstance(specs, list) or not specs:
+        return ""
+    parts = []
+    for entry in specs:
+        if not isinstance(entry, dict):
+            continue
+        kwargs = {}
+        for yaml_key, param in (("name", "has_name"), ("value", "has_value"),
+                                ("unit", "has_unit")):
+            if (v := entry.get(yaml_key)) not in (None, ""):
+                kwargs[param] = v
+        if kwargs:
+            parts.append(render_subobject("Specification", kwargs))
+    return "\n".join(parts)
 
 
 def render_project(
@@ -198,6 +223,8 @@ def render_project(
     project_name = file.content["name"]
     repository_url = file.content.get("repository_url")
     managed_parts = [main]
+    if specs_block := _specs_subobjects(file):
+        managed_parts.append(specs_block)
     if extras := _free_text_sections(file, repository_url=repository_url, tag=None):
         managed_parts.append(extras)
     if images_block := _images_section(images or []):
@@ -242,6 +269,8 @@ def render_component(
         )
 
     managed_parts = [render_template(category_name, kwargs)]
+    if specs_block := _specs_subobjects(file):
+        managed_parts.append(specs_block)
     if extras := _free_text_sections(file, repository_url=repository_url, tag=tag):
         managed_parts.append(extras)
     if images_block := _images_section(images or []):
@@ -272,10 +301,10 @@ def render_release(
 ) -> PageContent:
     """Immutable per-tag Release manifest page.
 
-    ``images`` is the full list of image uploads (project + component) for the release.
-    The Release page links to each image's *versioned* filename, freezing the manifest
-    at the moment of the tag — even after the unversioned alias is overwritten by a
-    later release, the Release page still points at this release's binaries.
+    ``images`` is the list of *project-level* image uploads (not component-level —
+    those live on the Component pages). The Release page references them via
+    ``Has image`` only; visual rendering of versioned thumbnails is left off the
+    Release page since the queryable annotation is what matters.
 
     ``readme`` is the project root README converted to wikitext, snapshotted on this
     immutable page so each release captures its own README state.
@@ -303,16 +332,6 @@ def render_release(
 
     kwargs = _filter_to_installed(kwargs, category)
     body_parts = [render_template("Release", kwargs)]
-    if images:
-        # Versioned thumbs in a gallery — the binary at this name is immutable across releases.
-        gallery_lines = []
-        for u in images:
-            line = u.versioned_name
-            if u.caption:
-                line += f"|{u.caption}"
-            gallery_lines.append(line)
-        gallery = "<gallery mode=\"packed\">\n" + "\n".join(gallery_lines) + "\n</gallery>"
-        body_parts.append(render_section("Images", gallery))
     if readme is not None:
         body_parts.append(render_section("README", readme.wikitext))
 

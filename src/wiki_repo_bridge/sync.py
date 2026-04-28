@@ -137,7 +137,6 @@ def plan_sync(
     plan.image_uploads.extend(project_images)
 
     component_archive_pages: list[str] = []
-    all_release_images: list[ImageUpload] = list(project_images)
     for cf, ci in zip(component_files, component_image_lists, strict=True):
         version = str(cf.content.get("version", "0.0.0"))
         component_name = cf.content["name"]
@@ -156,10 +155,6 @@ def plan_sync(
             )
         )
         plan.image_uploads.extend(ci)
-        all_release_images.extend(ci)
-        # Release links to the per-version archive subpage. The archive doesn't exist
-        # at first sync of a given version — it's created by the next bump's page move,
-        # so the link is a redlink during the active version's lifetime.
         component_archive_pages.append(
             page_names.component_archive_page(project_name, component_name, version)
         )
@@ -176,7 +171,7 @@ def plan_sync(
             changelog=changelog,
             artifact_url=artifact_url,
             schema=schema,
-            images=all_release_images,
+            images=project_images,
             readme=project_readme,
         )
     )

@@ -58,7 +58,7 @@ class TestProject:
     def test_default_project_status_when_missing(self) -> None:
         f = file_from("wiki.yml", {"kind": "project", "name": "MiniXL", "description": "x"})
         page = render_project(f, make_schema())
-        assert "|has_project_status=active" in page.managed_body
+        assert "|has_project_status=Active" in page.managed_body
 
     def test_explicit_project_status_overrides_default(self) -> None:
         f = file_from(
@@ -70,7 +70,7 @@ class TestProject:
         )
         page = render_project(f, make_schema())
         assert "|has_project_status=archived" in page.managed_body
-        assert "|has_project_status=active" not in page.managed_body
+        assert "|has_project_status=Active" not in page.managed_body
 
 
 class TestDesignFilesRendering:
@@ -119,7 +119,7 @@ class TestComponent:
             repository_url="https://github.com/miniscope/MiniXL",
             schema=make_schema(),
         )
-        assert page.page_name == "MiniXL/Components/Housing"
+        assert page.page_name == "MiniXL/Component/Housing"
         assert page.immutable is False
         assert page.managed_body is not None
         assert "{{Hardware component" in page.managed_body
@@ -139,6 +139,56 @@ class TestComponent:
         )
 
 
+class TestSpecificationSubobjects:
+    def test_specs_render_as_subobject_invocations(self) -> None:
+        f = file_from(
+            "optics/wiki.yml",
+            {
+                "kind": "hardware_component",
+                "name": "Optics",
+                "version": "1.0.0",
+                "description": "x",
+                "specs": [
+                    {"name": "Field of View", "value": "3.5", "unit": "mm"},
+                    {"name": "Resolution", "value": "~3", "unit": "um"},
+                ],
+            },
+        )
+        page = render_component(
+            f, project_name="P", version="1.0.0", tag="v1.0.0",
+            repository_url=None, schema=make_schema(),
+        )
+        assert "{{Specification/subobject" in page.managed_body
+        assert "|has_name=Field of View" in page.managed_body
+        assert "|has_value=3.5" in page.managed_body
+        assert "|has_unit=mm" in page.managed_body
+        assert "|has_name=Resolution" in page.managed_body
+
+    def test_specs_omit_missing_optional_fields(self) -> None:
+        f = file_from(
+            "pcb/wiki.yml",
+            {
+                "kind": "hardware_component",
+                "name": "PCB",
+                "version": "1.0.0",
+                "description": "x",
+                "specs": [
+                    {"name": "Layers", "value": "4"},  # no unit
+                ],
+            },
+        )
+        page = render_component(
+            f, project_name="P", version="1.0.0", tag="v1.0.0",
+            repository_url=None, schema=make_schema(),
+        )
+        assert "|has_name=Layers" in page.managed_body
+        assert "|has_value=4" in page.managed_body
+        # has_unit should be absent (no unit declared)
+        spec_block = page.managed_body[page.managed_body.find("{{Specification/subobject"):]
+        spec_block = spec_block[:spec_block.find("}}") + 2]
+        assert "has_unit" not in spec_block
+
+
 class TestRelease:
     def test_release_page(self) -> None:
         project = file_from(
@@ -155,15 +205,15 @@ class TestRelease:
             project,
             tag="v1.2.0",
             component_pages=[
-                "MiniXL/Components/Housing/v1.0.2",
-                "MiniXL/Components/Optics/v1.0.0",
+                "MiniXL/Component/Housing/v1.0.2",
+                "MiniXL/Component/Optics/v1.0.0",
             ],
             release_date="2025-04-14",
             changelog="Updated firmware",
             artifact_url="https://github.com/miniscope/MiniXL/tree/v1.2.0",
             schema=make_schema(),
         )
-        assert page.page_name == "MiniXL/Releases/1.2.0"
+        assert page.page_name == "MiniXL/Release/1.2.0"
         assert page.immutable is True
         assert "{{Release" in page.wikitext
         assert "|has_tag=v1.2.0" in page.wikitext
@@ -171,7 +221,7 @@ class TestRelease:
         assert "|has_release_date=2025-04-14" in page.wikitext
         assert "|has_name=MiniXL Release 1.2.0" in page.wikitext
         assert (
-            "|has_component=MiniXL/Components/Housing/v1.0.2, MiniXL/Components/Optics/v1.0.0"
+            "|has_component=MiniXL/Component/Housing/v1.0.2, MiniXL/Component/Optics/v1.0.0"
             in page.wikitext
         )
         assert "|has_changelog=Updated firmware" in page.wikitext
@@ -183,7 +233,7 @@ class TestRelease:
             {"kind": "project", "name": "MiniXL", "description": "x", "project_status": "active"},
         )
         page = render_release(
-            project, tag="v1.2.0", component_pages=["MiniXL/Components/X/v1.0.0"],
+            project, tag="v1.2.0", component_pages=["MiniXL/Component/X/v1.0.0"],
             release_date="2025-04-14", schema=make_schema(),
         )
         assert "has_responsible_party" not in page.wikitext
