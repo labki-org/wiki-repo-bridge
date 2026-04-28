@@ -49,3 +49,18 @@ def component_archive_page(project: str, component_name: str, version: str) -> s
 def release_page(project: str, tag_or_version: str) -> str:
     """The per-tag immutable Release manifest page (e.g. ``MiniXL/Releases/1.2.0``)."""
     return f"{project}/Releases/{normalize_version(tag_or_version)}"
+
+
+def repo_blob_url(repository_url: str, tag: str, rel_path: str) -> str:
+    """A GitHub blob URL pinned to a tag (e.g. ``.../blob/v0.1.0/baseplate/file.f3d``)."""
+    return f"{repository_url.rstrip('/')}/blob/{tag}/{rel_path.lstrip('/')}"
+
+
+def repo_tree_url(repository_url: str, tag: str, rel_path: str = "") -> str:
+    """A GitHub tree URL pinned to a tag (e.g. ``.../tree/v0.1.0/baseplate``).
+
+    With ``rel_path=""`` returns the repo root at that tag — the canonical "release artifact"
+    URL surfaced as ``Has artifact url`` on Release pages.
+    """
+    base = f"{repository_url.rstrip('/')}/tree/{tag}"
+    return f"{base}/{rel_path.lstrip('/')}" if rel_path else base

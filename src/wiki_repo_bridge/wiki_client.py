@@ -7,6 +7,7 @@ which keeps tests easy to write with a mocked Site.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -24,6 +25,8 @@ from wiki_repo_bridge.wikitext import (
     semver_tuple,
     wrap_managed,
 )
+
+log = logging.getLogger(__name__)
 
 
 class WriteAction(StrEnum):
@@ -81,6 +84,7 @@ class WikiClient:
         certain mediawiki+bot-password combinations) returns success without actually
         establishing a session. Verifying ``site.username`` afterwards catches that.
         """
+        log.info("Logging in as %s", username)
         self.site.login(username, password)
         actual = getattr(self.site, "username", None)
         if not actual:
@@ -89,21 +93,21 @@ class WikiClient:
                 "session — verify the bot username and password are correct (and that "
                 "the username includes the @BotName suffix for bot-password logins)."
             )
+        log.info("Logged in as %s", actual)
 
     def fetch_wikitext(self, page_name: str) -> str:
         """Return the current wikitext of ``page_name`` (e.g. ``Category:Project``)."""
         try:
             page = self.site.pages[page_name]
-        except Exception as e:  # mwclient.errors.APIError or similar
-            if "readapidenied" in str(e):
+        except mwclient.errors.APIError as e:
+            if getattr(e, "code", None) == "readapidenied":
                 raise WikiAuthError(
                     "Wiki requires authentication for read access — "
                     "pass --bot-user and --bot-password (or set WIKI_REPO_BOT_USER / "
                     "WIKI_REPO_BOT_PASSWORD env vars)."
                 ) from e
             raise
-        exists = getattr(page, "exists", None)  # mocks may omit this attribute
-        if exists is False:
+        if not page.exists:
             raise PageNotFoundError(f"Page {page_name!r} does not exist")
         text = page.text()
         if not text or not text.strip():
@@ -192,7 +196,7 @@ class WikiClient:
         ``dry_run=True`` returns the would-be action without contacting the wiki.
         """
         page = self.site.pages[content.page_name]
-        exists = bool(getattr(page, "exists", False))
+        exists = page.exists
 
         if content.bootstrap_only and exists:
             return WriteResult(
@@ -208,6 +212,7 @@ class WikiClient:
         reason = "dry-run" if dry_run else ""
         if not dry_run:
             page.edit(text=new_text, summary=edit_summary)
+        log.info("[%s] %s%s", action.value, content.page_name, f" ({reason})" if reason else "")
         return WriteResult(content.page_name, action, reason)
 
     @staticmethod
@@ -251,8 +256,7 @@ class WikiClient:
             return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
 
         page = self.site.pages[content.page_name]
-        exists = bool(getattr(page, "exists", False))
-        if not exists:
+        if not page.exists:
             return self.write_page(content, edit_summary=edit_summary, dry_run=dry_run)
 
         existing = page.text() or ""
@@ -279,15 +283,14 @@ class WikiClient:
 
         # Bump: move existing → archive subpage, then create fresh at the canonical name.
         archive_name = f"{content.page_name}/v{old_version}"
+        log.info("Version bump %s → %s; archiving previous to %s",
+                 old_version, content.version, archive_name)
         self.move_page(
             content.page_name, archive_name,
             reason=f"wiki-repo-bridge archive v{old_version}", dry_run=dry_run,
         )
-        # Page object still references the old name; mwclient invalidates after a move,
-        # but our composition path only needs the page-absent branch now.
         if dry_run:
             return WriteResult(content.page_name, WriteAction.CREATED, "dry-run (archive+create)")
-        # Re-fetch under the canonical name (now empty after the move).
         return self.write_page(content, edit_summary=edit_summary, dry_run=False)
 
     def upload_file(
@@ -307,6 +310,8 @@ class WikiClient:
         """
         from pathlib import Path
 
+        import mwclient.errors
+
         from wiki_repo_bridge.images import file_sha1
 
         path = Path(abs_path)
@@ -314,19 +319,21 @@ class WikiClient:
             return "dry-run"
 
         local_sha1 = file_sha1(path)
+        image = self.site.images[wiki_name]
         try:
-            image = self.site.images[wiki_name]
-            existed = bool(getattr(image, "exists", False))
-            if existed:
-                info = getattr(image, "imageinfo", {}) or {}
-                if info.get("sha1") == local_sha1:
-                    return "skipped"
-        except Exception:
+            existed = image.exists
+        except mwclient.errors.APIError as e:
+            log.warning("Couldn't check existing %s on wiki: %s — uploading anyway", wiki_name, e)
             existed = False
+        if existed and (image.imageinfo or {}).get("sha1") == local_sha1:
+            log.info("[skipped] File:%s (sha1 matches)", wiki_name)
+            return "skipped"
 
         with open(path, "rb") as f:
             self.site.upload(f, filename=wiki_name, description=description, ignore=True)
-        return "updated" if existed else "created"
+        action = "updated" if existed else "created"
+        log.info("[%s] File:%s (%d bytes)", action, wiki_name, path.stat().st_size)
+        return action
 
     def move_page(
         self,
@@ -345,13 +352,13 @@ class WikiClient:
         if dry_run:
             return
         source = self.site.pages[from_name]
-        if not bool(getattr(source, "exists", False)):
+        if not source.exists:
             raise PageNotFoundError(f"Cannot move missing page {from_name!r}")
-        dest = self.site.pages[to_name]
-        if bool(getattr(dest, "exists", False)):
+        if self.site.pages[to_name].exists:
             raise ArchiveConflictError(
                 f"Cannot move {from_name!r} → {to_name!r}: destination already exists"
             )
+        log.info("Moving %s → %s", from_name, to_name)
         source.move(to_name, reason=reason, no_redirect=no_redirect)
 
     def load_schema(
@@ -360,6 +367,7 @@ class WikiClient:
         """Load a :class:`Schema` containing the requested Categories (with inheritance resolved)
         and any Properties referenced by their fields, plus any extra Properties named explicitly.
         """
+        log.info("Fetching schema (%d categories) from wiki", len(category_names))
         schema = Schema()
         for name in category_names:
             schema.categories[name] = self.load_category_with_inheritance(name)
@@ -368,8 +376,11 @@ class WikiClient:
         for cat in schema.categories.values():
             for f in cat.property_fields:
                 names_to_fetch.add(f.name)
+        log.info("Fetching %d properties from wiki", len(names_to_fetch))
         for name in names_to_fetch:
             schema.properties[name] = self.fetch_property(name)
+        log.info("Schema loaded: %d categories, %d properties",
+                 len(schema.categories), len(schema.properties))
         return schema
 
 

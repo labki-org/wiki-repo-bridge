@@ -150,8 +150,7 @@ def _design_file_link(
     if text.startswith(("http://", "https://", "/")):
         return text
     rel = f"{base_path}/{text}" if base_path else text
-    url = f"{repository_url.rstrip('/')}/blob/{tag}/{rel}"
-    return f"[{url} {text}]"
+    return f"[{page_names.repo_blob_url(repository_url, tag, rel)} {text}]"
 
 
 def _images_section(uploads: list[ImageUpload]) -> str:
@@ -238,7 +237,9 @@ def render_component(
     kwargs["has_project"] = project_name
     kwargs["has_version"] = version
     if repository_url and (source_path := file.content.get("source_path")):
-        kwargs["has_design_file_url"] = f"{repository_url.rstrip('/')}/tree/{tag}/{source_path}"
+        kwargs["has_design_file_url"] = page_names.repo_tree_url(
+            repository_url, tag, source_path,
+        )
 
     managed_parts = [render_template(category_name, kwargs)]
     if extras := _free_text_sections(file, repository_url=repository_url, tag=tag):

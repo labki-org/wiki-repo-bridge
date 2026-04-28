@@ -131,7 +131,9 @@ def _swap_declared_image_paths_for_aliases(
 
 def _tagged_blob_url(repository_url: str, tag: str, rel_path: str) -> str:
     """Build a GitHub blob URL pinned to a tag for a path relative to the repo root."""
-    return f"{repository_url.rstrip('/')}/blob/{tag}/{rel_path.lstrip('/')}"
+    from wiki_repo_bridge.page_names import repo_blob_url
+
+    return repo_blob_url(repository_url, tag, rel_path)
 
 
 def convert_readme(

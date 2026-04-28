@@ -1,69 +1,9 @@
-from tests.conftest import make_wiki_yml_file
+from tests.conftest import make_schema, make_wiki_yml_file
 from wiki_repo_bridge.pages import (
     render_component,
     render_project,
     render_release,
 )
-from wiki_repo_bridge.schema import (
-    CategoryDef,
-    PropertyDef,
-    PropertyField,
-    Schema,
-)
-
-
-def make_schema() -> Schema:
-    schema = Schema()
-    schema.categories["Project"] = CategoryDef(
-        name="Project",
-        property_fields=[
-            PropertyField(name="Has description", required=True),
-            PropertyField(name="Has project status", required=True),
-            PropertyField(name="Has repository url", required=False),
-            PropertyField(name="Has license", required=False),
-            PropertyField(name="Has DOI", required=False),
-            PropertyField(name="Has predecessor", required=False),
-        ],
-    )
-    schema.categories["Hardware component"] = CategoryDef(
-        name="Hardware component",
-        property_fields=[
-            PropertyField(name="Has name", required=True),
-            PropertyField(name="Has project", required=True),
-            PropertyField(name="Has version", required=False),
-            PropertyField(name="Has family", required=False),
-            PropertyField(name="Has latest version", required=False),
-            PropertyField(name="Has description", required=False),
-            PropertyField(name="Has hardware type", required=False),
-            PropertyField(name="Has source path", required=False),
-            PropertyField(name="Has design file url", required=False),
-            PropertyField(name="Has release", required=False),
-        ],
-    )
-    schema.categories["Release"] = CategoryDef(
-        name="Release",
-        property_fields=[
-            PropertyField(name="Has name", required=True),
-            PropertyField(name="Has version", required=True),
-            PropertyField(name="Has release date", required=True),
-            PropertyField(name="Has project", required=True),
-            PropertyField(name="Has responsible party", required=True),
-            PropertyField(name="Has tag", required=False),
-            PropertyField(name="Has changelog", required=False),
-            PropertyField(name="Has component", required=False),
-            PropertyField(name="Has artifact url", required=False),
-        ],
-    )
-    for prop in [
-        "Has description", "Has project status", "Has repository url", "Has license",
-        "Has DOI", "Has predecessor", "Has name", "Has project", "Has version",
-        "Has family", "Has latest version", "Has hardware type", "Has source path",
-        "Has design file url", "Has release", "Has release date", "Has tag",
-        "Has changelog", "Has component", "Has artifact url", "Has responsible party",
-    ]:
-        schema.properties[prop] = PropertyDef(name=prop, type="Text")
-    return schema
-
 
 file_from = make_wiki_yml_file
 

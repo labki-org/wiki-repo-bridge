@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
@@ -17,8 +18,24 @@ from wiki_repo_bridge.validator import has_errors
 from wiki_repo_bridge.walker import find_wiki_yml_files
 from wiki_repo_bridge.wiki_client import WikiClient
 
-# .env in the cwd is auto-loaded so envvar-backed flags pick up secrets.
 load_dotenv()
+
+
+def _configure_logging(verbose: bool) -> None:
+    """Surface bridge module logs to stderr so the operator can see progress.
+
+    INFO is the default — every state transition (login, schema fetch, page write,
+    image upload) emits one line. ``--verbose`` widens to DEBUG.
+    """
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    # Keep mwclient and requests at WARN so the per-API-call chatter doesn't drown ours.
+    logging.getLogger("mwclient").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
 def _build_plan(
@@ -37,7 +54,6 @@ def _build_plan(
     client = WikiClient.from_api_url(wiki_url)
     if bot_user and bot_password:
         client.login(bot_user, bot_password)
-        click.echo(f"  logged in as: {getattr(client.site, 'username', '?')}")
     schema = client.load_schema(categories_used_by_repo(repo_path, files=files))
     plan = plan_sync(
         repo_path, wiki_url, tag=tag, schema=schema, files=files,
@@ -48,8 +64,10 @@ def _build_plan(
 
 @click.group()
 @click.version_option()
-def main() -> None:
+@click.option("--verbose", "-v", is_flag=True, help="Enable DEBUG-level logging.")
+def main(verbose: bool) -> None:
     """Sync repository metadata (wiki.yml) to MediaWiki + SemanticSchemas wikis."""
+    _configure_logging(verbose)
 
 
 @main.command()

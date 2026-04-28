@@ -9,7 +9,7 @@ and ``execute_sync`` (impure: performs the writes) so callers can dry-run safely
 
 from __future__ import annotations
 
-import re
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -45,6 +45,10 @@ from wiki_repo_bridge.walker import (
     find_wiki_yml_files,
 )
 from wiki_repo_bridge.wiki_client import WikiClient, WriteResult
+from wiki_repo_bridge.wikitext import semver_tuple
+
+log = logging.getLogger(__name__)
+_pypandoc_missing_warned = False
 
 _SUPPORTED_KINDS = [k.value for k in Kind]
 
@@ -161,7 +165,7 @@ def plan_sync(
         )
 
     artifact_url = (
-        f"{repository_url.rstrip('/')}/tree/{tag}" if repository_url else None
+        page_names.repo_tree_url(repository_url, tag) if repository_url else None
     )
     plan.pages.append(
         render_release(
@@ -202,7 +206,13 @@ def _maybe_load_readme(
             tag=tag, repo_root=repo_root,
         )
     except ImportError:
-        # pypandoc missing — README sync is a soft feature, don't fail the whole plan.
+        global _pypandoc_missing_warned
+        if not _pypandoc_missing_warned:
+            log.warning(
+                "pypandoc not installed — skipping README sync entirely. "
+                "Install with `pip install pypandoc-binary` to embed READMEs on wiki pages."
+            )
+            _pypandoc_missing_warned = True
         return None
 
 
@@ -262,13 +272,19 @@ def execute_sync(
             f"Refusing to execute sync to {plan.wiki_url}: validation failed with errors"
         )
     summary = edit_summary or f"wiki-repo-bridge sync ({plan.tag})"
+    mode = "DRY-RUN" if dry_run else "LIVE"
+    log.info("[%s] Executing sync to %s — %d images, %d pages",
+             mode, plan.wiki_url, len(plan.image_uploads), len(plan.pages))
 
+    if plan.image_uploads:
+        log.info("Uploading %d images (each as versioned + alias)", len(plan.image_uploads))
     for upload in plan.image_uploads:
         client.upload_file(upload.abs_path, upload.versioned_name,
                            description=f"versioned image for {plan.tag}", dry_run=dry_run)
         client.upload_file(upload.abs_path, upload.alias_name,
                            description="latest alias", dry_run=dry_run)
 
+    log.info("Writing %d pages", len(plan.pages))
     results: list[WriteResult] = []
     for p in plan.pages:
         if p.version is not None:
@@ -301,16 +317,14 @@ def categories_used_by_repo(
     return sorted(cats)
 
 
-_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][\w.+-]+)?$")
-
-
 def _check_major_version_match(
     tag: str, component_files: list[WikiYmlFile]
 ) -> list[ValidationIssue]:
     """Lint: tag must be semver-formatted (``v1.2.0`` or ``1.2.0``) and every
     component's major version must match the project tag's major version."""
-    project_version = page_names.normalize_version(tag)
-    if not _SEMVER_RE.match(project_version):
+    try:
+        project_major, *_ = semver_tuple(tag)
+    except ValueError:
         return [ValidationIssue(
             severity=Severity.ERROR,
             file="<tag>",
@@ -319,28 +333,34 @@ def _check_major_version_match(
                 "For testing without a real release, use --tag v0.0.0."
             ),
         )]
-    project_major = project_version.split(".", 1)[0]
+
     issues: list[ValidationIssue] = []
     for cf in component_files:
-        component_version = str(cf.content.get("version", ""))
+        component_version = str(cf.content.get("version", "")).strip()
         if not component_version:
+            issues.append(ValidationIssue(
+                severity=Severity.ERROR,
+                file=str(cf.relative_path),
+                message="missing required field: version (e.g., '0.1.0')",
+            ))
             continue
-        if not _SEMVER_RE.match(page_names.normalize_version(component_version)):
+        try:
+            component_major, *_ = semver_tuple(component_version)
+        except ValueError:
             issues.append(ValidationIssue(
                 severity=Severity.ERROR,
                 file=str(cf.relative_path),
                 message=f"component version {component_version!r} is not semver-formatted",
             ))
             continue
-        component_major = component_version.split(".", 1)[0]
         if component_major != project_major:
             issues.append(
                 ValidationIssue(
                     severity=Severity.ERROR,
                     file=str(cf.relative_path),
                     message=(
-                        f"component version {component_version!r} major does not match "
-                        f"project tag {tag!r} major ({project_major!r})"
+                        f"component version {component_version!r} major ({component_major}) "
+                        f"does not match project tag {tag!r} major ({project_major})"
                     ),
                 )
             )

@@ -2,13 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import FakeSite, write_text
-from wiki_repo_bridge.schema import (
-    CategoryDef,
-    PropertyDef,
-    PropertyField,
-    Schema,
-)
+from tests.conftest import FakeSite, make_schema, write_text
 from wiki_repo_bridge.sync import (
     SyncError,
     categories_used_by_repo,
@@ -17,52 +11,6 @@ from wiki_repo_bridge.sync import (
 )
 from wiki_repo_bridge.validator import has_errors
 from wiki_repo_bridge.wiki_client import WikiClient, WriteAction
-
-
-def make_schema() -> Schema:
-    schema = Schema()
-    schema.categories["Project"] = CategoryDef(
-        name="Project",
-        property_fields=[
-            PropertyField(name="Has description", required=True),
-            PropertyField(name="Has project status", required=True),
-            PropertyField(name="Has repository url", required=False),
-        ],
-    )
-    schema.categories["Hardware component"] = CategoryDef(
-        name="Hardware component",
-        property_fields=[
-            PropertyField(name="Has name", required=True),
-            PropertyField(name="Has project", required=True),
-            PropertyField(name="Has version", required=False),
-            PropertyField(name="Has description", required=False),
-            PropertyField(name="Has source path", required=False),
-            PropertyField(name="Has design file url", required=False),
-            PropertyField(name="Has image", required=False),
-        ],
-    )
-    schema.categories["Release"] = CategoryDef(
-        name="Release",
-        property_fields=[
-            PropertyField(name="Has name", required=True),
-            PropertyField(name="Has version", required=True),
-            PropertyField(name="Has release date", required=True),
-            PropertyField(name="Has project", required=True),
-            PropertyField(name="Has tag", required=False),
-            PropertyField(name="Has component", required=False),
-            PropertyField(name="Has artifact url", required=False),
-            PropertyField(name="Has changelog", required=False),
-            PropertyField(name="Has image", required=False),
-        ],
-    )
-    for prop in [
-        "Has description", "Has project status", "Has repository url", "Has name",
-        "Has project", "Has version", "Has source path", "Has design file url",
-        "Has release date", "Has tag", "Has component", "Has artifact url",
-        "Has changelog", "Has image",
-    ]:
-        schema.properties[prop] = PropertyDef(name=prop, type="Text")
-    return schema
 
 
 @pytest.fixture
@@ -129,12 +77,22 @@ class TestPlanSync:
         # tag v2.0.0 but components are at major 1
         plan = plan_sync(repo, "https://wiki.test/api.php", "v2.0.0", schema=make_schema())
         assert has_errors(plan.issues)
-        assert any("major does not match" in i.message for i in plan.issues)
+        assert any("does not match" in i.message for i in plan.issues)
 
     def test_non_semver_tag_errors(self, repo: Path) -> None:
         plan = plan_sync(repo, "https://wiki.test/api.php", "main", schema=make_schema())
         assert has_errors(plan.issues)
         assert any("must be semver-formatted" in i.message for i in plan.issues)
+
+    def test_missing_component_version_errors(self, tmp_path: Path) -> None:
+        write_text(tmp_path / "wiki.yml",
+                   "kind: project\nname: P\ndescription: x\nproject_status: active\n")
+        write_text(tmp_path / "h" / "wiki.yml",
+                   "kind: hardware_component\nname: H\n")  # version: omitted
+        plan = plan_sync(tmp_path, "https://wiki.test/api.php", "v1.0.0", schema=make_schema())
+        assert has_errors(plan.issues)
+        assert any("missing required field: version" in i.message for i in plan.issues)
+        assert plan.pages == []
 
     def test_non_semver_component_version_errors(self, tmp_path: Path) -> None:
         write_text(tmp_path / "wiki.yml",

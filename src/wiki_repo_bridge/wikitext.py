@@ -131,8 +131,9 @@ def semver_tuple(version: str) -> tuple[int, ...]:
     Pre-release/build metadata after ``-`` or ``+`` is dropped — proper pre-release
     comparison is more complex than the bridge needs. Raises ``ValueError`` on non-semver.
     """
-    s = version[1:] if version.startswith("v") else version
-    s = s.split("-", 1)[0].split("+", 1)[0]
+    from wiki_repo_bridge.page_names import normalize_version
+
+    s = normalize_version(version).split("-", 1)[0].split("+", 1)[0]
     parts = s.split(".")
     if len(parts) != 3 or not all(p.isdigit() for p in parts):
         raise ValueError(f"Not a semver-formatted version: {version!r}")
