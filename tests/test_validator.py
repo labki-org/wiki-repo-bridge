@@ -90,11 +90,18 @@ class TestValidateFile:
         schema = make_schema()
         f = file_from_content(
             "wiki.yml",
-            {"kind": "project", "description": "x"},  # missing Has project status
+            {"kind": "project", "project_status": "active"},  # missing Has description
         )
         issues = validate_file(f, schema)
         assert has_errors(issues)
-        assert any("Has project status" in i.message for i in issues)
+        assert any("Has description" in i.message for i in issues)
+
+    def test_project_status_is_ci_injected(self) -> None:
+        """Has project status is required on the wiki but bridge auto-defaults it."""
+        schema = make_schema()
+        f = file_from_content("wiki.yml", {"kind": "project", "description": "x"})
+        issues = validate_file(f, schema)
+        assert not has_errors(issues)
 
     def test_missing_kind(self) -> None:
         schema = make_schema()

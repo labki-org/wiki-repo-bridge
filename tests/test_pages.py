@@ -48,6 +48,7 @@ def make_schema() -> Schema:
             PropertyField(name="Has version", required=True),
             PropertyField(name="Has release date", required=True),
             PropertyField(name="Has project", required=True),
+            PropertyField(name="Has responsible party", required=True),
             PropertyField(name="Has tag", required=False),
             PropertyField(name="Has changelog", required=False),
             PropertyField(name="Has component", required=False),
@@ -59,7 +60,7 @@ def make_schema() -> Schema:
         "Has DOI", "Has predecessor", "Has name", "Has project", "Has version",
         "Has family", "Has latest version", "Has hardware type", "Has source path",
         "Has design file url", "Has release", "Has release date", "Has tag",
-        "Has changelog", "Has component", "Has artifact url",
+        "Has changelog", "Has component", "Has artifact url", "Has responsible party",
     ]:
         schema.properties[prop] = PropertyDef(name=prop, type="Text")
     return schema
@@ -110,6 +111,27 @@ class TestProjectBootstrap:
         page = render_project_bootstrap(f, make_schema())
         assert "base_path" not in page.wikitext
         assert "citation" not in page.wikitext
+
+    def test_default_project_status_when_missing(self) -> None:
+        """Wiki requires Has project status; bridge defaults to 'active' if not declared."""
+        f = file_from(
+            "wiki.yml",
+            {"kind": "project", "name": "MiniXL", "description": "x"},
+        )
+        page = render_project_bootstrap(f, make_schema())
+        assert "|has_project_status=active" in page.wikitext
+
+    def test_explicit_project_status_overrides_default(self) -> None:
+        f = file_from(
+            "wiki.yml",
+            {
+                "kind": "project", "name": "MiniXL", "description": "x",
+                "project_status": "archived",
+            },
+        )
+        page = render_project_bootstrap(f, make_schema())
+        assert "|has_project_status=archived" in page.wikitext
+        assert "|has_project_status=active" not in page.wikitext
 
 
 class TestComponentFamily:
@@ -178,6 +200,7 @@ class TestRelease:
                 "name": "MiniXL",
                 "description": "x",
                 "project_status": "active",
+                "responsible_party": "Aharoni Lab",
             },
         )
         page = render_release(
@@ -204,3 +227,15 @@ class TestRelease:
             in page.wikitext
         )
         assert "|has_changelog=Updated firmware" in page.wikitext
+        assert "|has_responsible_party=Aharoni Lab" in page.wikitext
+
+    def test_release_omits_responsible_party_when_project_lacks_one(self) -> None:
+        project = file_from(
+            "wiki.yml",
+            {"kind": "project", "name": "MiniXL", "description": "x", "project_status": "active"},
+        )
+        page = render_release(
+            project, tag="v1.2.0", component_pages=["MiniXL/Components/X/1.0.0"],
+            release_date="2025-04-14", schema=make_schema(),
+        )
+        assert "has_responsible_party" not in page.wikitext

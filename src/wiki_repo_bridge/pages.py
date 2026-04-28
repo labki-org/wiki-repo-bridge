@@ -85,10 +85,17 @@ def _free_text_sections(file: WikiYmlFile) -> str:
     return "\n\n".join(sections)
 
 
+DEFAULT_PROJECT_STATUS = "active"
+
+
 def render_project_bootstrap(file: WikiYmlFile, schema: Schema) -> PageContent:
     """Bootstrap stub for the Project page. Written only if the page does not exist."""
     category = schema.categories["Project"]
-    main = render_template("Project", _content_kwargs(file, category))
+    kwargs = _content_kwargs(file, category)
+    # The wiki requires Has project status; default to "active" if the user
+    # didn't declare it explicitly via project_status: in wiki.yml.
+    kwargs.setdefault("has_project_status", DEFAULT_PROJECT_STATUS)
+    main = render_template("Project", _filter_to_installed(kwargs, category))
 
     body_parts = [main]
     if extras := _free_text_sections(file):
@@ -189,6 +196,9 @@ def render_release(
         kwargs["has_changelog"] = changelog
     if artifact_url:
         kwargs["has_artifact_url"] = artifact_url
+    # Pull responsible_party from the project file — the wiki requires it on Release.
+    if responsible_party := project_file.content.get("responsible_party"):
+        kwargs["has_responsible_party"] = responsible_party
 
     kwargs = _filter_to_installed(kwargs, category)
     return PageContent(

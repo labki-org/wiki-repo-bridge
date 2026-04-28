@@ -60,7 +60,7 @@ class Kind(StrEnum):
 # top-level wiki.yml; the writer synthesizes family/latest-version/design-file
 # URL from context.
 CI_INJECTED_BY_KIND: dict[str, frozenset[str]] = {
-    Kind.PROJECT: frozenset(),
+    Kind.PROJECT: frozenset({"Has project status"}),
     Kind.HARDWARE_COMPONENT: frozenset(
         {"Has project", "Has family", "Has latest version", "Has design file url"}
     ),
