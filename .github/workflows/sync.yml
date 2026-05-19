@@ -6,10 +6,16 @@ on:
       wikis:
         description: |
           Newline-separated list of MediaWiki API URLs to sync to.
+
+          Each line is `<URL>` (uses default credentials) or `<URL> creds=alt`
+          (uses the alt credential slot — see the WIKI_REPO_BOT_USER_ALT /
+          WIKI_REPO_BOT_PASSWORD_ALT secrets). Use the alt slot when one wiki
+          needs a different bot password from the others.
+
           Example:
             wikis: |
               https://wiki.example-lab.org/api.php
-              https://example-public.org/wiki/api.php
+              https://example-public.org/wiki/api.php creds=alt
         required: true
         type: string
       tag:
@@ -37,6 +43,12 @@ on:
         required: true
       WIKI_REPO_BOT_PASSWORD:
         required: true
+      WIKI_REPO_BOT_USER_ALT:
+        description: Bot username for wikis annotated `creds=alt` in the `wikis` input.
+        required: false
+      WIKI_REPO_BOT_PASSWORD_ALT:
+        description: Bot password for wikis annotated `creds=alt` in the `wikis` input.
+        required: false
 
 jobs:
   sync:
@@ -64,31 +76,67 @@ jobs:
 
       - name: Run sync
         env:
-          WIKI_REPO_BOT_USER: ${{ secrets.WIKI_REPO_BOT_USER }}
-          WIKI_REPO_BOT_PASSWORD: ${{ secrets.WIKI_REPO_BOT_PASSWORD }}
+          DEFAULT_BOT_USER: ${{ secrets.WIKI_REPO_BOT_USER }}
+          DEFAULT_BOT_PASSWORD: ${{ secrets.WIKI_REPO_BOT_PASSWORD }}
+          ALT_BOT_USER: ${{ secrets.WIKI_REPO_BOT_USER_ALT }}
+          ALT_BOT_PASSWORD: ${{ secrets.WIKI_REPO_BOT_PASSWORD_ALT }}
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_WIKIS: ${{ inputs.wikis }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_CHANGELOG: ${{ inputs.changelog }}
           DEFAULT_TAG: ${{ github.ref_name }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           TAG="${INPUT_TAG:-$DEFAULT_TAG}"
           DRY_RUN_FLAG=""
           if [ "$INPUT_DRY_RUN" = "true" ]; then DRY_RUN_FLAG="--dry-run"; fi
           CHANGELOG_FLAG=""
           if [ -n "$INPUT_CHANGELOG" ]; then CHANGELOG_FLAG="--changelog=$INPUT_CHANGELOG"; fi
 
-          WIKI_ARGS=()
-          while IFS= read -r url; do
-            url_trimmed="$(echo "$url" | xargs || true)"
-            if [ -n "$url_trimmed" ]; then
-              WIKI_ARGS+=("--wiki=$url_trimmed")
+          overall_exit=0
+          while IFS= read -r raw_line; do
+            line="$(echo "$raw_line" | xargs || true)"
+            [ -z "$line" ] && continue
+
+            url="${line%% *}"
+            annotation="$(echo "${line#"$url"}" | xargs || true)"
+            slot="default"
+            if [ -n "$annotation" ]; then
+              case "$annotation" in
+                creds=*) slot="${annotation#creds=}" ;;
+                *)
+                  echo "::error::unrecognized wiki annotation '$annotation' (expected 'creds=<slot>')"
+                  overall_exit=1
+                  continue
+                  ;;
+              esac
+            fi
+
+            case "$slot" in
+              default) USER_VAL="$DEFAULT_BOT_USER"; PASS_VAL="$DEFAULT_BOT_PASSWORD" ;;
+              alt)     USER_VAL="$ALT_BOT_USER";     PASS_VAL="$ALT_BOT_PASSWORD" ;;
+              *)
+                echo "::error::unknown creds slot '$slot' for $url (valid: default, alt)"
+                overall_exit=1
+                continue
+                ;;
+            esac
+
+            if [ -z "$USER_VAL" ] || [ -z "$PASS_VAL" ]; then
+              echo "::error::credentials for slot '$slot' are not set; cannot sync $url"
+              overall_exit=1
+              continue
+            fi
+
+            echo "=== $url (creds slot: $slot) ==="
+            if ! WIKI_REPO_BOT_USER="$USER_VAL" WIKI_REPO_BOT_PASSWORD="$PASS_VAL" \
+                 wiki-repo-bridge sync . \
+                   --tag "$TAG" \
+                   --wiki="$url" \
+                   $DRY_RUN_FLAG \
+                   $CHANGELOG_FLAG; then
+              overall_exit=1
             fi
           done <<< "$INPUT_WIKIS"
 
-          wiki-repo-bridge sync . \
-            --tag "$TAG" \
-            "${WIKI_ARGS[@]}" \
-            $DRY_RUN_FLAG \
-            $CHANGELOG_FLAG
+          exit "$overall_exit"

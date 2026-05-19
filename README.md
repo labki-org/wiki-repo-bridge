@@ -40,6 +40,20 @@ If your secrets live elsewhere or have different names, pass them explicitly ins
       WIKI_REPO_BOT_PASSWORD: ${{ secrets.MY_BOT_PASSWORD }}
 ```
 
+If different wikis need different bot credentials (e.g. one wiki is run by another organization), annotate the wiki with `creds=alt` and map a second secret pair to the `_ALT` slot:
+
+```yaml
+    with:
+      wikis: |
+        https://wiki.example-lab.org/api.php
+        https://public-wiki.example.org/api.php creds=alt
+    secrets:
+      WIKI_REPO_BOT_USER: ${{ secrets.MY_BOT_USER }}
+      WIKI_REPO_BOT_PASSWORD: ${{ secrets.MY_BOT_PASSWORD }}
+      WIKI_REPO_BOT_USER_ALT: ${{ secrets.PUBLIC_WIKI_BOT_USER }}
+      WIKI_REPO_BOT_PASSWORD_ALT: ${{ secrets.PUBLIC_WIKI_BOT_PASSWORD }}
+```
+
 ## CLI
 
 ```bash
